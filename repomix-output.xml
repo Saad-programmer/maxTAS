@@ -1,0 +1,3454 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+Problematique_Exemple/
+  bench_students_map
+  bench_students_map.cpp
+  bench_students_raw
+  bench_students_raw.cpp
+  bench_students_vector
+  bench_students_vector.cpp
+bench_heap_list_scale
+bench_heap_list_scale.cpp
+bench_heap_map_scale
+bench_heap_map_scale.cpp
+bench_heap_raw_scale
+bench_heap_raw_scale.cpp
+bench_heap_vector_scale
+bench_heap_vector_scale.cpp
+bench_maxheap
+bench_maxheap_scale
+bench_maxheap_scale.cpp
+bench_maxheap.cpp
+heap_list
+heap_list.cpp
+heap_map
+heap_map.cpp
+heap_raw
+heap_raw.cpp
+heap_vector
+heap_vector.cpp
+maxTas
+maxTas.cpp
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="Problematique_Exemple/bench_students_map.cpp">
+// bench_students_map.cpp — MaxHeapMap sur Student (boursiers)
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o bench_students_map bench_students_map.cpp
+// Exécution   : ./bench_students_map
+//
+// ATTENTION : MaxHeapMap = O(log² N) par insert/pop. À N = 1e6, l'insert complet
+// prend plusieurs secondes, mais reste faisable (~5-15 s selon machine).
+
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <cstdint>
+#include <stdexcept>
+
+// ============================================================
+static const std::size_t N         = 1'000'000;
+static const std::size_t DEL_COUNT = 5'000;      // deleteKey O(N) → cap plus bas
+static const std::size_t TOP_ITERS = 5'000'000;  // top O(log N) → moins d'iters
+static const unsigned    SEED      = 42;
+// ============================================================
+
+struct Student {
+    int         id;
+    std::string name;
+    double      scholarship;
+    bool operator<(const Student& o) const {
+        if (scholarship != o.scholarship) return scholarship < o.scholarship;
+        return id < o.id;
+    }
+    bool operator==(const Student& o) const { return id == o.id; }
+};
+
+// ---------- MaxHeapMap ----------
+template <typename T>
+class MaxHeapMap {
+    std::map<int, T> tree;
+    T&       ref(int i)       { return tree.at(i); }
+    const T& ref(int i) const { return tree.at(i); }
+    void heapify(int i) {
+        while (true) {
+            int n = (int)tree.size();
+            int l = 2*i+1, r = 2*i+2, largest = i;
+            // Correction : '<' au lieu de '>'
+            if (l < n && ref(largest) < ref(l)) largest = l;
+            if (r < n && ref(largest) < ref(r)) largest = r;
+            if (largest == i) break;
+            std::swap(ref(i), ref(largest));
+            i = largest;
+        }
+    }
+public:
+    bool empty() const { return tree.empty(); }
+    int  size()  const { return (int)tree.size(); }
+    void insert(const T& v) {
+        int idx = (int)tree.size();
+        tree[idx] = v;
+        int i = idx;
+        while (i != 0) {
+            int p = (i-1)/2;
+            // Correction : !(a < b) équivaut à (a >= b) avec seulement '<'
+            if (!(ref(p) < ref(i))) break;
+            std::swap(ref(i), ref(p));
+            i = p;
+        }
+    }
+    const T& top() const {
+        if (tree.empty()) throw std::runtime_error("top() sur heap vide");
+        return tree.at(0);
+    }
+    T pop() {
+        if (tree.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = tree.at(0);
+        int last = (int)tree.size() - 1;
+        if (last == 0) { tree.clear(); return root; }
+        tree[0] = tree.at(last);
+        tree.erase(last);
+        heapify(0);
+        return root;
+    }
+    bool deleteKey(const T& key) {
+        int idx = -1;
+        for (const auto& kv : tree) if (kv.second == key) { idx = kv.first; break; }
+        if (idx == -1) return false;
+        int last = (int)tree.size() - 1;
+        if (idx == last) { tree.erase(last); return true; }
+        tree[idx] = tree.at(last);
+        tree.erase(last);
+        int i = idx;
+        while (i != 0) {
+            int p = (i-1)/2;
+            // Correction : '<' au lieu de '>='
+            if (!(ref(p) < ref(i))) break;
+            std::swap(ref(i), ref(p)); i = p;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v), out; int c = 0;
+    for (int i = (int)s.size()-1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+int main() {
+    std::mt19937_64 rng(SEED);
+    std::uniform_int_distribution<int>    dist_name(0, 9999);
+    std::uniform_real_distribution<double> dist_sch(0.0, 10'000.0);
+
+    std::vector<Student> data(N);
+    for (std::size_t i = 0; i < N; ++i) {
+        data[i].id          = (int)i;
+        data[i].name        = "etu" + std::to_string(dist_name(rng));
+        data[i].scholarship = dist_sch(rng);
+    }
+
+    std::cout << "===============================================================\n";
+    std::cout << "  [MAP]   Étudiants boursiers — N = " << fmt_u(N) << "\n";
+    std::cout << "  /!\\ O(log^2 N) par insert/pop — plus lent\n";
+    std::cout << "===============================================================\n\n";
+
+    MaxHeapMap<Student> heap;
+
+    auto t0 = Clock::now();
+    for (std::size_t i = 0; i < N; ++i) heap.insert(data[i]);
+    auto t1 = Clock::now();
+    double ins_ms = ms(t0, t1);
+    double ins_ns = ins_ms * 1e6 / (double)N;
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Insert   : " << std::setw(12) << ins_ms << " ms | " << ins_ns << " ns/op\n";
+
+    volatile long long sink = 0;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < TOP_ITERS; ++i) sink += (long long)heap.top().id;
+    t1 = Clock::now();
+    double top_ms = ms(t0, t1);
+    double top_ns = top_ms * 1e6 / (double)TOP_ITERS;
+    std::cout << "Top x" << fmt_u(TOP_ITERS) << " : " << std::setw(12) << top_ms
+              << " ms | " << top_ns << " ns/op\n";
+
+    std::size_t half = heap.size() / 2;
+    double sum_pop = 0.0;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < half; ++i) sum_pop += heap.pop().scholarship;
+    t1 = Clock::now();
+    double pop_ms = ms(t0, t1);
+    double pop_ns = pop_ms * 1e6 / (double)half;
+    std::cout << "Pop " << fmt_u(half) << " : " << std::setw(12) << pop_ms
+              << " ms | " << pop_ns << " ns/op   (somme = "
+              << std::setprecision(0) << sum_pop << " €)\n";
+
+    std::vector<int> ids_to_delete(DEL_COUNT);
+    for (std::size_t i = 0; i < DEL_COUNT; ++i) ids_to_delete[i] = (int)i;
+    std::shuffle(ids_to_delete.begin(), ids_to_delete.end(), rng);
+
+    t0 = Clock::now();
+    std::size_t del_ok = 0;
+    for (int id : ids_to_delete) { Student p; p.id = id; if (heap.deleteKey(p)) ++del_ok; }
+    t1 = Clock::now();
+    double del_ms = ms(t0, t1);
+    double del_ns = del_ms * 1e6 / (double)DEL_COUNT;
+    std::cout << "DeleteKey x" << fmt_u(DEL_COUNT) << " : " << std::setw(12) << del_ms
+              << " ms | " << del_ns << " ns/op   (" << del_ok << " supprimés)\n\n";
+
+    std::cout << "----------------------------- RÉCAP -----------------------------\n";
+    std::cout << std::left  << std::setw(14) << "Opération"
+              << std::right << std::setw(16) << "total (ms)"
+              << std::setw(14) << "ns/op"
+              << std::setw(20) << "complexité" << "\n";
+    std::cout << std::string(64, '-') << "\n";
+    std::cout << std::left  << std::setw(14) << "insert"       << std::right
+              << std::setw(16) << ins_ms << std::setw(14) << ins_ns << std::setw(20) << "O(log^2 N)" << "\n";
+    std::cout << std::left  << std::setw(14) << "top"          << std::right
+              << std::setw(16) << top_ms << std::setw(14) << top_ns << std::setw(20) << "O(log N)"   << "\n";
+    std::cout << std::left  << std::setw(14) << "pop (extract)"<< std::right
+              << std::setw(16) << pop_ms << std::setw(14) << pop_ns << std::setw(20) << "O(log^2 N)" << "\n";
+    std::cout << std::left  << std::setw(14) << "deleteKey"    << std::right
+              << std::setw(16) << del_ms << std::setw(14) << del_ns << std::setw(20) << "O(N)"       << "\n";
+    std::cout << "----------------------------------------------------------------\n";
+    std::cout << "Sink = " << sink << "\n";
+    std::cout << "Plus boursier restant : " << heap.top().scholarship << " € (id "
+              << heap.top().id << ")\n";
+    return 0;
+}
+
+/*
+Terminal Result sur ma machine:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS/Problematique_Exemple$ ./bench_students_map
+===============================================================
+  [MAP]   Étudiants boursiers — N = 1 000 000
+  /!\ O(log^2 N) par insert/pop — plus lent
+===============================================================
+
+Insert   :      1380.65 ms | 1380.65 ns/op
+Top x5 000 000 :       225.68 ms | 45.14 ns/op
+Pop 500 000 :     10689.63 ms | 21379.27 ns/op   (somme = 3751198580 €)
+DeleteKey x5 000 :        34953 ms | 6990642 ns/op   (2492 supprimés)
+
+----------------------------- RÉCAP -----------------------------
+Opération          total (ms)         ns/op         complexité
+----------------------------------------------------------------
+insert                    1381          1381          O(log^2 N)
+top                        226            45            O(log N)
+pop (extract)            10690         21379          O(log^2 N)
+deleteKey                34953       6990642                O(N)
+----------------------------------------------------------------
+Sink = 3507580000000
+Plus boursier restant : 5000 € (id 757051)
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS/Problematique_Exemple$ 
+*/
+</file>
+
+<file path="Problematique_Exemple/bench_students_raw.cpp">
+// bench_students_raw.cpp — MaxHeapRaw sur Student (boursiers)
+// Compilation :
+//   g++ -std=c++17 -O2 -Wall -Wextra -o bench_students_raw bench_students_raw.cpp
+// Exécution :
+//   ./bench_students_raw
+//
+// Problème : N = 1 000 000 étudiants, extraire toujours le plus boursier.
+// Opérations mesurées : insert / top / pop (extract-max) / deleteKey (retirer un id).
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <cstdint>
+#include <stdexcept>
+
+// ============================================================
+static const std::size_t N            = 1'000'000; // taille du jeu de données
+static const std::size_t DEL_COUNT    = 10'000;    // nb de deleteKey mesurés
+static const std::size_t TOP_ITERS    = 50'000'000;// itérations de top()
+static const unsigned    SEED         = 42;
+// ============================================================
+
+// ---------- Domaine métier ----------
+struct Student {
+    int         id;
+    std::string name;
+    double      scholarship; // montant de la bourse en €
+
+    // Max-heap : on veut que le plus boursier soit "le plus grand".
+    // Départage par id si montants égaux (stable, évite les == ambigus).
+    bool operator<(const Student& o) const {
+        if (scholarship != o.scholarship) return scholarship < o.scholarship;
+        return id < o.id;
+    }
+    bool operator==(const Student& o) const { return id == o.id; }
+};
+
+static std::ostream& operator<<(std::ostream& os, const Student& s) {
+    return os << "Student{id=" << s.id
+              << ", name=\"" << s.name << "\""
+              << ", scholarship=" << s.scholarship << "€}";
+}
+
+// ---------- MaxHeapRaw (tableau brut) ----------
+template <typename T>
+class MaxHeapRaw {
+    T*   buf;
+    int  sz;
+    int  cap;
+    void grow() {
+        int newCap = (cap == 0) ? 8 : cap * 2;
+        T* newBuf = new T[newCap];
+        for (int i = 0; i < sz; ++i) newBuf[i] = buf[i];
+        delete[] buf;
+        buf = newBuf;
+        cap = newCap;
+    }
+    void heapify(int i) {
+        while (true) {
+            int l = 2*i+1, r = 2*i+2, largest = i;
+            // Correction : utiliser '<' (convention C++17, pas de synthèse de '>')
+            if (l < sz && buf[largest] < buf[l]) largest = l;
+            if (r < sz && buf[largest] < buf[r]) largest = r;
+            if (largest == i) break;
+            T tmp = buf[i]; buf[i] = buf[largest]; buf[largest] = tmp;
+            i = largest;
+        }
+    }
+public:
+    MaxHeapRaw() : buf(nullptr), sz(0), cap(0) {}
+    MaxHeapRaw(const MaxHeapRaw&) = delete;
+    MaxHeapRaw& operator=(const MaxHeapRaw&) = delete;
+    ~MaxHeapRaw() { delete[] buf; }
+    bool empty() const { return sz == 0; }
+    int  size()  const { return sz; }
+    void reserve(int n) {
+        if (n <= cap) return;
+        T* nb = new T[n];
+        for (int i = 0; i < sz; ++i) nb[i] = buf[i];
+        delete[] buf; buf = nb; cap = n;
+    }
+    void insert(const T& v) {
+        if (sz == cap) grow();
+        buf[sz++] = v;
+        int i = sz - 1;
+        while (i != 0 && buf[(i-1)/2] < buf[i]) {
+            T t = buf[i]; buf[i] = buf[(i-1)/2]; buf[(i-1)/2] = t;
+            i = (i-1)/2;
+        }
+    }
+    const T& top() const {
+        if (sz == 0) throw std::runtime_error("top() sur heap vide");
+        return buf[0];
+    }
+    T pop() {
+        if (sz == 0) throw std::runtime_error("pop() sur heap vide");
+        T root = buf[0];
+        buf[0] = buf[--sz];
+        if (sz > 0) heapify(0);
+        return root;
+    }
+    bool deleteKey(const T& key) {
+        int idx = -1;
+        for (int i = 0; i < sz; ++i) if (buf[i] == key) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == sz-1) { --sz; return true; }
+        buf[idx] = buf[--sz];
+        int i = idx;
+        while (i != 0 && buf[(i-1)/2] < buf[i]) {
+            T t = buf[i]; buf[i] = buf[(i-1)/2]; buf[(i-1)/2] = t;
+            i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v), out; int c = 0;
+    for (int i = (int)s.size()-1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+int main() {
+    std::mt19937_64 rng(SEED);
+    std::uniform_int_distribution<int>    dist_id(0, 10'000'000);
+    std::uniform_real_distribution<double> dist_sch(0.0, 10'000.0);
+    std::uniform_int_distribution<int>    dist_name(0, 9999);
+
+    // ---- Génération (hors mesure) ----
+    std::vector<Student> data(N);
+    for (std::size_t i = 0; i < N; ++i) {
+        data[i].id          = (int)i;
+        data[i].name        = "etu" + std::to_string(dist_name(rng));
+        data[i].scholarship = dist_sch(rng);
+    }
+
+    std::cout << "===============================================================\n";
+    std::cout << "  [RAW]   Étudiants boursiers — N = " << fmt_u(N) << "\n";
+    std::cout << "  insert / top (le + boursier) / pop (= extract-max) / deleteKey\n";
+    std::cout << "===============================================================\n\n";
+
+    MaxHeapRaw<Student> heap;
+    heap.reserve((int)N);
+
+    // ---- 1) INSERT ----
+    auto t0 = Clock::now();
+    for (std::size_t i = 0; i < N; ++i) heap.insert(data[i]);
+    auto t1 = Clock::now();
+    double ins_ms = ms(t0, t1);
+    double ins_ns = ins_ms * 1e6 / (double)N;
+    std::cout << "Insert   : " << std::setw(12) << std::fixed << std::setprecision(2)
+              << ins_ms << " ms | " << ins_ns << " ns/op\n";
+
+    // ---- 2) TOP ----
+    volatile long long sink = 0;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < TOP_ITERS; ++i) sink += (long long)heap.top().id;
+    t1 = Clock::now();
+    double top_ms = ms(t0, t1);
+    double top_ns = top_ms * 1e6 / (double)TOP_ITERS;
+    std::cout << "Top x" << fmt_u(TOP_ITERS) << " : " << std::setw(12) << top_ms
+              << " ms | " << top_ns << " ns/op\n";
+
+    // ---- 3) POP (extraire le plus boursier, moitié) ----
+    std::size_t half = heap.size() / 2;
+    double sum_pop = 0.0;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < half; ++i) {
+        Student s = heap.pop();
+        sum_pop += s.scholarship;
+    }
+    t1 = Clock::now();
+    double pop_ms = ms(t0, t1);
+    double pop_ns = pop_ms * 1e6 / (double)half;
+    std::cout << "Pop " << fmt_u(half) << " : " << std::setw(12) << pop_ms
+              << " ms | " << pop_ns << " ns/op   (somme bourses extraites = "
+              << std::fixed << std::setprecision(0) << sum_pop << " €)\n";
+
+    // ---- 4) DELETE KEY (retirer DEL_COUNT étudiants par id) ----
+    std::vector<int> ids_to_delete(DEL_COUNT);
+    for (std::size_t i = 0; i < DEL_COUNT; ++i) ids_to_delete[i] = (int)i;
+    std::shuffle(ids_to_delete.begin(), ids_to_delete.end(), rng);
+
+    t0 = Clock::now();
+    std::size_t del_ok = 0;
+    for (int id : ids_to_delete) {
+        Student probe; probe.id = id;
+        if (heap.deleteKey(probe)) ++del_ok;
+    }
+    t1 = Clock::now();
+    double del_ms = ms(t0, t1);
+    double del_ns = del_ms * 1e6 / (double)DEL_COUNT;
+    std::cout << "DeleteKey x" << fmt_u(DEL_COUNT) << " : " << std::setw(12) << del_ms
+              << " ms | " << del_ns << " ns/op   (" << del_ok << " supprimés)\n\n";
+
+    // ---- Tableau final ----
+    std::cout << "----------------------------- RÉCAP -----------------------------\n";
+    std::cout << std::left  << std::setw(14) << "Opération"
+              << std::right << std::setw(16) << "total (ms)"
+              << std::setw(14) << "ns/op"
+              << std::setw(20) << "complexité" << "\n";
+    std::cout << std::string(64, '-') << "\n";
+    std::cout << std::left  << std::setw(14) << "insert"
+              << std::right << std::setw(16) << ins_ms
+              << std::setw(14) << ins_ns << std::setw(20) << "O(log N)" << "\n";
+    std::cout << std::left  << std::setw(14) << "top"
+              << std::right << std::setw(16) << top_ms
+              << std::setw(14) << top_ns << std::setw(20) << "O(1)" << "\n";
+    std::cout << std::left  << std::setw(14) << "pop (extract)"
+              << std::right << std::setw(16) << pop_ms
+              << std::setw(14) << pop_ns << std::setw(20) << "O(log N)" << "\n";
+    std::cout << std::left  << std::setw(14) << "deleteKey"
+              << std::right << std::setw(16) << del_ms
+              << std::setw(14) << del_ns << std::setw(20) << "O(N)" << "\n";
+    std::cout << "----------------------------------------------------------------\n";
+    std::cout << "Sink = " << sink << " (empêche l'optimisation)\n";
+    // Utilisation de operator<< : supprime le warning -Wunused-function
+    std::cout << "Plus boursier restant : " << heap.top() << "\n";
+    return 0;
+}
+/*
+Terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS/Problematique_Exemple$ ./bench_students_raw
+===============================================================
+  [RAW]   Étudiants boursiers — N = 1 000 000
+  insert / top (le + boursier) / pop (= extract-max) / deleteKey
+===============================================================
+
+Insert   :        66.76 ms | 66.76 ns/op
+Top x50 000 000 :        25.78 ms | 0.52 ns/op
+Pop 500 000 :       492.19 ms | 984.39 ns/op   (somme bourses extraites = 3751198580 €)
+DeleteKey x10 000 :         9354 ms | 935421 ns/op   (5016 supprimés)
+
+----------------------------- RÉCAP -----------------------------
+Opération          total (ms)         ns/op         complexité
+----------------------------------------------------------------
+insert                      67            67            O(log N)
+top                         26             1                O(1)
+pop (extract)              492           984            O(log N)
+deleteKey                 9354        935421                O(N)
+----------------------------------------------------------------
+Sink = 35075800000000 (empêche l'optimisation)
+Plus boursier restant : Student{id=757051, name="etu6826", scholarship=5000€}
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS/Problematique_Exemple$ 
+
+*/
+</file>
+
+<file path="Problematique_Exemple/bench_students_vector.cpp">
+// bench_students_vector.cpp — MaxHeapVector sur Student (boursiers)
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o bench_students_vector bench_students_vector.cpp
+// Exécution   : ./bench_students_vector
+//
+// Identique au RAW mais avec std::vector<Student> comme stockage.
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <cstdint>
+#include <stdexcept>
+
+// ============================================================
+static const std::size_t N            = 1'000'000;
+static const std::size_t DEL_COUNT    = 10'000;
+static const std::size_t TOP_ITERS    = 50'000'000;
+static const unsigned    SEED         = 42;
+// ============================================================
+
+struct Student {
+    int         id;
+    std::string name;
+    double      scholarship;
+    bool operator<(const Student& o) const {
+        if (scholarship != o.scholarship) return scholarship < o.scholarship;
+        return id < o.id;
+    }
+    bool operator==(const Student& o) const { return id == o.id; }
+};
+
+// ---------- MaxHeapVector ----------
+template <typename T>
+class MaxHeapVector {
+    std::vector<T> arr;
+    void heapify(int i) {
+        while (true) {
+            int n = (int)arr.size();
+            int l = 2*i+1, r = 2*i+2, largest = i;
+            // Correction : utiliser '<' (convention C++17)
+            if (l < n && arr[largest] < arr[l]) largest = l;
+            if (r < n && arr[largest] < arr[r]) largest = r;
+            if (largest == i) break;
+            std::swap(arr[i], arr[largest]);
+            i = largest;
+        }
+    }
+public:
+    void reserve(std::size_t n) { arr.reserve(n); }
+    bool empty() const { return arr.empty(); }
+    int  size()  const { return (int)arr.size(); }
+    void insert(const T& v) {
+        arr.push_back(v);
+        int i = (int)arr.size() - 1;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]);
+            i = (i-1)/2;
+        }
+    }
+    const T& top() const {
+        if (arr.empty()) throw std::runtime_error("top() sur heap vide");
+        return arr[0];
+    }
+    T pop() {
+        if (arr.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = arr[0];
+        arr[0] = arr.back();
+        arr.pop_back();
+        if (!arr.empty()) heapify(0);
+        return root;
+    }
+    bool deleteKey(const T& key) {
+        int n = (int)arr.size(), idx = -1;
+        for (int i = 0; i < n; ++i) if (arr[i] == key) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == n-1) { arr.pop_back(); return true; }
+        arr[idx] = arr.back(); arr.pop_back();
+        int i = idx;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]); i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v), out; int c = 0;
+    for (int i = (int)s.size()-1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+int main() {
+    std::mt19937_64 rng(SEED);
+    std::uniform_int_distribution<int>    dist_id(0, 10'000'000);
+    std::uniform_real_distribution<double> dist_sch(0.0, 10'000.0);
+    std::uniform_int_distribution<int>    dist_name(0, 9999);
+
+    std::vector<Student> data(N);
+    for (std::size_t i = 0; i < N; ++i) {
+        data[i].id          = (int)i;
+        data[i].name        = "etu" + std::to_string(dist_name(rng));
+        data[i].scholarship = dist_sch(rng);
+    }
+
+    std::cout << "===============================================================\n";
+    std::cout << "  [VECTOR]   Étudiants boursiers — N = " << fmt_u(N) << "\n";
+    std::cout << "===============================================================\n\n";
+
+    MaxHeapVector<Student> heap;
+    heap.reserve(N);
+
+    auto t0 = Clock::now();
+    for (std::size_t i = 0; i < N; ++i) heap.insert(data[i]);
+    auto t1 = Clock::now();
+    double ins_ms = ms(t0, t1);
+    double ins_ns = ins_ms * 1e6 / (double)N;
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Insert   : " << std::setw(12) << ins_ms << " ms | " << ins_ns << " ns/op\n";
+
+    volatile long long sink = 0;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < TOP_ITERS; ++i) sink += (long long)heap.top().id;
+    t1 = Clock::now();
+    double top_ms = ms(t0, t1);
+    double top_ns = top_ms * 1e6 / (double)TOP_ITERS;
+    std::cout << "Top x" << fmt_u(TOP_ITERS) << " : " << std::setw(12) << top_ms
+              << " ms | " << top_ns << " ns/op\n";
+
+    std::size_t half = heap.size() / 2;
+    double sum_pop = 0.0;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < half; ++i) sum_pop += heap.pop().scholarship;
+    t1 = Clock::now();
+    double pop_ms = ms(t0, t1);
+    double pop_ns = pop_ms * 1e6 / (double)half;
+    std::cout << "Pop " << fmt_u(half) << " : " << std::setw(12) << pop_ms
+              << " ms | " << pop_ns << " ns/op   (somme = "
+              << std::setprecision(0) << sum_pop << " €)\n";
+
+    std::vector<int> ids_to_delete(DEL_COUNT);
+    for (std::size_t i = 0; i < DEL_COUNT; ++i) ids_to_delete[i] = (int)i;
+    std::shuffle(ids_to_delete.begin(), ids_to_delete.end(), rng);
+
+    t0 = Clock::now();
+    std::size_t del_ok = 0;
+    for (int id : ids_to_delete) { Student p; p.id = id; if (heap.deleteKey(p)) ++del_ok; }
+    t1 = Clock::now();
+    double del_ms = ms(t0, t1);
+    double del_ns = del_ms * 1e6 / (double)DEL_COUNT;
+    std::cout << "DeleteKey x" << fmt_u(DEL_COUNT) << " : " << std::setw(12) << del_ms
+              << " ms | " << del_ns << " ns/op   (" << del_ok << " supprimés)\n\n";
+
+    std::cout << "----------------------------- RÉCAP -----------------------------\n";
+    std::cout << std::left  << std::setw(14) << "Opération"
+              << std::right << std::setw(16) << "total (ms)"
+              << std::setw(14) << "ns/op"
+              << std::setw(20) << "complexité" << "\n";
+    std::cout << std::string(64, '-') << "\n";
+    std::cout << std::left  << std::setw(14) << "insert"      << std::right
+              << std::setw(16) << ins_ms << std::setw(14) << ins_ns << std::setw(20) << "O(log N)" << "\n";
+    std::cout << std::left  << std::setw(14) << "top"         << std::right
+              << std::setw(16) << top_ms << std::setw(14) << top_ns << std::setw(20) << "O(1)"     << "\n";
+    std::cout << std::left  << std::setw(14) << "pop (extract)"<< std::right
+              << std::setw(16) << pop_ms << std::setw(14) << pop_ns << std::setw(20) << "O(log N)" << "\n";
+    std::cout << std::left  << std::setw(14) << "deleteKey"   << std::right
+              << std::setw(16) << del_ms << std::setw(14) << del_ns << std::setw(20) << "O(N)"     << "\n";
+    std::cout << "----------------------------------------------------------------\n";
+    std::cout << "Sink = " << sink << "\n";
+    std::cout << "Plus boursier restant : " << heap.top().scholarship << " € (id "
+              << heap.top().id << ")\n";
+    return 0;
+}
+
+/*
+Terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS/Problematique_Exemple$ ./bench_students_vector
+===============================================================
+  [VECTOR]   Étudiants boursiers — N = 1 000 000
+===============================================================
+
+Insert   :        73.27 ms | 73.27 ns/op
+Top x50 000 000 :        28.34 ms | 0.57 ns/op
+Pop 500 000 :       382.34 ms | 764.68 ns/op   (somme = 3751198580 €)
+DeleteKey x10 000 :         9560 ms | 955957 ns/op   (5016 supprimés)
+
+----------------------------- RÉCAP -----------------------------
+Opération          total (ms)         ns/op         complexité
+----------------------------------------------------------------
+insert                      73            73            O(log N)
+top                         28             1                O(1)
+pop (extract)              382           765            O(log N)
+deleteKey                 9560        955957                O(N)
+----------------------------------------------------------------
+Sink = 35075800000000
+Plus boursier restant : 5000 € (id 757051)
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS/Problematique_Exemple$ 
+*/
+</file>
+
+<file path="bench_heap_list_scale.cpp">
+// bench_heap_list_scale.cpp
+// Benchmark MaxHeapList (std::list) — 100% self-contained, AUCUN argument CLI.
+//
+// Compilation :
+//   g++ -std=c++17 -O2 -Wall -Wextra -o bench_heap_list_scale bench_heap_list_scale.cpp
+// Exécution :
+//   ./bench_heap_list_scale
+//
+// Toutes les tailles et le budget temps se règlent dans les constantes
+// ci-dessous (SIZES, BUDGET_MS, DEL_CAP, TOP_ITERS).
+//
+// !!! COMPLEXITÉ !!!
+//   insert    : O(N) par op (std::next dans la remontée)
+//   pop       : O(N) par op (std::next dans heapify)
+//   deleteKey : O(N) par op (recherche + std::next + heapify)
+//   top       : O(1)
+//   => inutile de monter à 1e8 : ça ne terminerait pas.
+
+#include <iostream>
+#include <list>
+#include <iterator>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <string>
+#include <cstdint>
+#include <stdexcept>
+
+// ============================================================
+//  CONFIGURATION — modifie ici, rien à passer en ligne de commande
+// ============================================================
+static const std::vector<std::size_t> SIZES = {
+    100ULL, 300ULL, 1'000ULL, 3'000ULL, 10'000ULL, 30'000ULL, 100'000ULL
+};
+static const double BUDGET_MS = 5000.0;   // budget max par phase (ms)
+static const std::size_t DEL_CAP = 2'000; // deleteKey : cap du nombre d'ops
+static const std::size_t TOP_ITERS = 5'000'000; // itérations pour top()
+static const unsigned SEED = 42;
+// ============================================================
+
+// ---------- MaxHeapList (copie minimale de heap_list.cpp) ----------
+template <typename T>
+class MaxHeapList {
+    std::list<T> lst;
+
+    typename std::list<T>::iterator at(int i) {
+        return std::next(lst.begin(), i);
+    }
+    void heapify(int i) {
+        int n = (int)lst.size();
+        int l = 2*i + 1, r = 2*i + 2, largest = i;
+        auto itLargest = at(largest);
+        if (l < n) { auto itL = at(l); if (*itL > *itLargest) { largest = l; itLargest = itL; } }
+        if (r < n) { auto itR = at(r); if (*itR > *itLargest) { largest = r; itLargest = itR; } }
+        if (largest != i) { std::swap(*at(i), *at(largest)); heapify(largest); }
+    }
+public:
+    bool empty() const { return lst.empty(); }
+    int  size()  const { return (int)lst.size(); }
+
+    void insert(const T& v) {
+        lst.push_back(v);
+        int i = (int)lst.size() - 1;
+        while (i != 0) {
+            int p = (i - 1) / 2;
+            auto itI = at(i), itP = at(p);
+            if (*itP >= *itI) break;
+            std::swap(*itI, *itP);
+            i = p;
+        }
+    }
+    const T& top() const {
+        if (lst.empty()) throw std::runtime_error("top() sur heap vide");
+        return lst.front();
+    }
+    T pop() {
+        if (lst.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = lst.front();
+        *lst.begin() = lst.back();
+        lst.pop_back();
+        if (!lst.empty()) heapify(0);
+        return root;
+    }
+    bool deleteKey(const T& key) {
+        int n = (int)lst.size(), idx = -1, k = 0;
+        for (auto it = lst.begin(); it != lst.end(); ++it, ++k) {
+            if (*it == key) { idx = k; break; }
+        }
+        if (idx == -1) return false;
+        if (idx == n-1) { lst.pop_back(); return true; }
+        *at(idx) = lst.back();
+        lst.pop_back();
+        int i = idx;
+        while (i != 0) {
+            int p = (i-1)/2;
+            auto itI = at(i), itP = at(p);
+            if (*itP >= *itI) break;
+            std::swap(*itI, *itP);
+            i = p;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v), out;
+    int c = 0;
+    for (int i = (int)s.size() - 1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+struct Row {
+    std::size_t N = 0;
+    double ins_ms = 0; std::size_t ins_done = 0; bool ins_abort = false;
+    double top_ms = 0; std::size_t top_iters = 0;
+    double pop_ms = 0; std::size_t pop_done = 0; bool pop_abort = false;
+    double del_ms = 0; std::size_t del_done = 0; bool del_abort = false;
+};
+
+static Row run_one(std::size_t N, std::mt19937_64& rng) {
+    Row r; r.N = N;
+    std::uniform_int_distribution<int> dist(0, 10'000'000);
+
+    std::vector<int> data(N);
+    for (auto& x : data) x = dist(rng);
+
+    // ---- INSERT (budget) ----
+    MaxHeapList<int> h;
+    {
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < N; ++i) {
+            h.insert(data[i]);
+            ++r.ins_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.ins_abort = true; break;
+            }
+        }
+        r.ins_ms = ms(t0, Clock::now());
+    }
+
+    // ---- TOP ----
+    if (!h.empty()) {
+        r.top_iters = TOP_ITERS;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < r.top_iters; ++i) sink += h.top();
+        r.top_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- POP (moitié, budget) ----
+    {
+        std::size_t half = h.size() / 2;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < half; ++i) {
+            sink += h.pop();
+            ++r.pop_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.pop_abort = true; break;
+            }
+        }
+        r.pop_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- DELETE KEY (cap + budget) ----
+    std::size_t del_count = std::min<std::size_t>(N, DEL_CAP);
+    if (del_count > 0) {
+        MaxHeapList<int> hd;
+        std::vector<int> keys(del_count);
+        for (std::size_t i = 0; i < del_count; ++i) { int v = (int)i; hd.insert(v); keys[i] = v; }
+        std::shuffle(keys.begin(), keys.end(), rng);
+
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < del_count; ++i) {
+            hd.deleteKey(keys[i]);
+            ++r.del_done;
+            if ((i & 0x0F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.del_abort = true; break;
+            }
+        }
+        r.del_ms = ms(t0, Clock::now());
+    }
+    return r;
+}
+
+int main() {
+    std::mt19937_64 rng(SEED);
+
+    std::cout << "================================================================\n";
+    std::cout << "  Benchmark MaxHeapList (std::list) — self-contained\n";
+    std::cout << "  Budget/phase = " << BUDGET_MS << " ms | DEL_CAP = " << DEL_CAP
+              << " | TOP_ITERS = " << fmt_u(TOP_ITERS) << "\n";
+    std::cout << "  /!\\ insert/pop/deleteKey = O(N) par op, top = O(1)\n";
+    std::cout << "================================================================\n\n";
+
+    std::vector<Row> rows;
+    rows.reserve(SIZES.size());
+
+    for (std::size_t N : SIZES) {
+        std::cout << ">>> Exécution N = " << fmt_u(N) << " ... " << std::flush;
+        Row r = run_one(N, rng);
+        rows.push_back(r);
+        std::cout << "OK";
+        if (r.ins_abort) std::cout << " [insert ABORT]";
+        if (r.pop_abort) std::cout << " [pop ABORT]";
+        if (r.del_abort) std::cout << " [deleteKey ABORT]";
+        std::cout << "\n";
+    }
+
+    std::cout << "\nRÉSULTATS DÉTAILLÉS\n-------------------\n\n";
+    std::cout << std::fixed << std::setprecision(2);
+
+    for (const auto& r : rows) {
+        double ins_ns = r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+        double top_ns = r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+        double pop_ns = r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+        double del_ns = r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+
+        std::cout << "N = " << fmt_u(r.N) << "\n";
+        std::cout << "  Insert   : " << std::setw(12) << r.ins_ms << " ms | "
+                  << std::setw(14) << ins_ns << " ns/op ("
+                  << fmt_u(r.ins_done) << " / " << fmt_u(r.N)
+                  << (r.ins_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  Top      : " << std::setw(12) << r.top_ms << " ms | "
+                  << std::setw(14) << top_ns << " ns/op ("
+                  << fmt_u(r.top_iters) << " iters)\n";
+        std::cout << "  Pop      : " << std::setw(12) << r.pop_ms << " ms | "
+                  << std::setw(14) << pop_ns << " ns/op ("
+                  << fmt_u(r.pop_done) << (r.pop_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  DeleteKey: " << std::setw(12) << r.del_ms << " ms | "
+                  << std::setw(14) << del_ns << " ns/op ("
+                  << fmt_u(r.del_done) << (r.del_abort ? ", ABORT" : "") << ")\n\n";
+    }
+
+    // Tableau récap
+    std::cout << "TABLEAU RÉCAPITULATIF (ns/op)\n-----------------------------\n";
+    std::cout << std::left  << std::setw(12) << "N"
+              << std::right << std::setw(16) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(16) << "pop"
+              << std::setw(16) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    auto nso = [](const Row& r, int kind) -> double {
+        switch (kind) {
+            case 0: return r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+            case 1: return r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+            case 2: return r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+            default:return r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+        }
+    };
+    for (const auto& r : rows) {
+        std::cout << std::left  << std::setw(12) << fmt_u(r.N)
+                  << std::right << std::setw(16) << nso(r,0)
+                  << std::setw(14) << nso(r,1)
+                  << std::setw(16) << nso(r,2)
+                  << std::setw(16) << nso(r,3) << "\n";
+    }
+
+    // Ratios
+    std::cout << "\nRATIOS ns/op entre N et N/10\n-----------------------------\n";
+    std::cout << "Attendu MaxHeapList : top ~1 | insert/pop/delete ~10 (~O(N) par op)\n\n";
+    std::cout << std::left  << std::setw(18) << "N"
+              << std::right << std::setw(14) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(14) << "pop"
+              << std::setw(14) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& a = rows[i-1];
+        const auto& b = rows[i];
+        auto ratio = [](double x, double y) -> double { return (x > 0.0 && y > 0.0) ? y / x : 0.0; };
+        std::cout << std::left  << std::setw(18) << (fmt_u(b.N) + " / " + fmt_u(a.N))
+                  << std::right << std::setw(14) << ratio(nso(a,0), nso(b,0))
+                  << std::setw(14) << ratio(nso(a,1), nso(b,1))
+                  << std::setw(14) << ratio(nso(a,2), nso(b,2))
+                  << std::setw(14) << ratio(nso(a,3), nso(b,3)) << "\n";
+    }
+
+    std::cout << "\nTerminé.\n";
+    return 0;
+}
+
+/*
+Resultat Terminal:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS/Problematique_Exemple$ cd ..
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./bench_heap_list_scale
+================================================================
+  Benchmark MaxHeapList (std::list) — self-contained
+  Budget/phase = 5000 ms | DEL_CAP = 2000 | TOP_ITERS = 5 000 000
+  /!\ insert/pop/deleteKey = O(N) par op, top = O(1)
+================================================================
+
+>>> Exécution N = 100 ... OK
+>>> Exécution N = 300 ... OK
+>>> Exécution N = 1 000 ... OK
+>>> Exécution N = 3 000 ... OK
+>>> Exécution N = 10 000 ... OK
+>>> Exécution N = 30 000 ... OK [pop ABORT]
+>>> Exécution N = 100 000 ... OK [insert ABORT] [pop ABORT]
+
+RÉSULTATS DÉTAILLÉS
+-------------------
+
+N = 100
+  Insert   :         0.02 ms |         205.46 ns/op (100 / 100)
+  Top      :         3.12 ms |           0.62 ns/op (5 000 000 iters)
+  Pop      :         0.03 ms |         682.26 ns/op (50)
+  DeleteKey:         0.03 ms |         316.40 ns/op (100)
+
+N = 300
+  Insert   :         0.17 ms |         560.79 ns/op (300 / 300)
+  Top      :         2.76 ms |           0.55 ns/op (5 000 000 iters)
+  Pop      :         0.23 ms |        1535.61 ns/op (150)
+  DeleteKey:         0.27 ms |         886.78 ns/op (300)
+
+N = 1 000
+  Insert   :         1.97 ms |        1966.65 ns/op (1 000 / 1 000)
+  Top      :         5.19 ms |           1.04 ns/op (5 000 000 iters)
+  Pop      :         4.86 ms |        9720.22 ns/op (500)
+  DeleteKey:         4.78 ms |        4783.38 ns/op (1 000)
+
+N = 3 000
+  Insert   :        24.88 ms |        8293.95 ns/op (3 000 / 3 000)
+  Top      :         4.25 ms |           0.85 ns/op (5 000 000 iters)
+  Pop      :        43.93 ms |       29287.67 ns/op (1 500)
+  DeleteKey:        14.04 ms |        7019.51 ns/op (2 000)
+
+N = 10 000
+  Insert   :       259.17 ms |       25916.92 ns/op (10 000 / 10 000)
+  Top      :         2.34 ms |           0.47 ns/op (5 000 000 iters)
+  Pop      :       531.24 ms |      106248.01 ns/op (5 000)
+  DeleteKey:        14.47 ms |        7235.73 ns/op (2 000)
+
+N = 30 000
+  Insert   :      2747.50 ms |       91583.20 ns/op (30 000 / 30 000)
+  Top      :         2.31 ms |           0.46 ns/op (5 000 000 iters)
+  Pop      :      5010.20 ms |      405585.30 ns/op (12 353, ABORT)
+  DeleteKey:        18.93 ms |        9463.54 ns/op (2 000)
+
+N = 100 000
+  Insert   :      5009.99 ms |      124450.18 ns/op (40 257 / 100 000, ABORT)
+  Top      :         3.12 ms |           0.62 ns/op (5 000 000 iters)
+  Pop      :      5026.10 ms |      618291.96 ns/op (8 129, ABORT)
+  DeleteKey:        14.51 ms |        7253.84 ns/op (2 000)
+
+TABLEAU RÉCAPITULATIF (ns/op)
+-----------------------------
+N                     insert           top             pop       deleteKey
+--------------------------------------------------------------------------
+100                   205.46          0.62          682.26          316.40
+300                   560.79          0.55         1535.61          886.78
+1 000                1966.65          1.04         9720.22         4783.38
+3 000                8293.95          0.85        29287.67         7019.51
+10 000              25916.92          0.47       106248.01         7235.73
+30 000              91583.20          0.46       405585.30         9463.54
+100 000            124450.18          0.62       618291.96         7253.84
+
+RATIOS ns/op entre N et N/10
+-----------------------------
+Attendu MaxHeapList : top ~1 | insert/pop/delete ~10 (~O(N) par op)
+
+N                         insert           top           pop     deleteKey
+--------------------------------------------------------------------------
+300 / 100                   2.73          0.89          2.25          2.80
+1 000 / 300                 3.51          1.88          6.33          5.39
+3 000 / 1 000               4.22          0.82          3.01          1.47
+10 000 / 3 000              3.12          0.55          3.63          1.03
+30 000 / 10 000             3.53          0.99          3.82          1.31
+100 000 / 30 000            1.36          1.35          1.52          0.77
+
+Terminé.
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+*/
+</file>
+
+<file path="bench_heap_map_scale.cpp">
+// bench_heap_map_scale.cpp
+// Benchmark MaxHeapMap (std::map<int,T>) — 100% self-contained, AUCUN argument CLI.
+//
+// Compilation :
+//   g++ -std=c++17 -O2 -Wall -Wextra -o bench_heap_map_scale bench_heap_map_scale.cpp
+// Exécution :
+//   ./bench_heap_map_scale
+//
+// Règlages : constantes SIZES / BUDGET_MS / DEL_CAP / TOP_ITERS ci-dessous.
+//
+// !!! COMPLEXITÉ !!!
+//   insert    : O(log^2 N)  (O(log N) accès map x O(log N) niveaux)
+//   pop       : O(log^2 N)
+//   deleteKey : O(N) recherche + O(log^2 N) remontée/descente
+//   top       : O(log N) via tree.at(0)  (et non O(1) comme vector)
+//   => on plafonne à 1e6, sinon insert complet = plusieurs minutes.
+
+#include <iostream>
+#include <map>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <string>
+#include <cstdint>
+#include <stdexcept>
+
+// ============================================================
+//  CONFIGURATION — modifie ici, rien à passer en ligne de commande
+// ============================================================
+static const std::vector<std::size_t> SIZES = {
+    100ULL, 1'000ULL, 10'000ULL, 100'000ULL, 1'000'000ULL
+};
+static const double BUDGET_MS = 15000.0;   // budget max par phase (ms)
+static const std::size_t DEL_CAP = 5'000;  // deleteKey : cap du nombre d'ops
+static const std::size_t TOP_ITERS = 5'000'000; // itérations pour top()
+static const unsigned SEED = 42;
+// ============================================================
+
+// ---------- MaxHeapMap (copie minimale de heap_map.cpp) ----------
+template <typename T>
+class MaxHeapMap {
+    std::map<int, T> tree;
+
+    T&       ref(int i)       { return tree.at(i); }
+    const T& ref(int i) const { return tree.at(i); }
+
+    void heapify(int i) {
+        int n = (int)tree.size();
+        int l = 2*i+1, r = 2*i+2, largest = i;
+        if (l < n && ref(l) > ref(largest)) largest = l;
+        if (r < n && ref(r) > ref(largest)) largest = r;
+        if (largest != i) {
+            std::swap(ref(i), ref(largest));
+            heapify(largest);
+        }
+    }
+public:
+    bool empty() const { return tree.empty(); }
+    int  size()  const { return (int)tree.size(); }
+
+    void insert(const T& v) {
+        int idx = (int)tree.size();
+        tree[idx] = v;
+        int i = idx;
+        while (i != 0) {
+            int p = (i-1)/2;
+            if (ref(p) >= ref(i)) break;
+            std::swap(ref(i), ref(p));
+            i = p;
+        }
+    }
+    const T& top() const {
+        if (tree.empty()) throw std::runtime_error("top() sur heap vide");
+        return tree.at(0);
+    }
+    T pop() {
+        if (tree.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = tree.at(0);
+        int last = (int)tree.size() - 1;
+        if (last == 0) { tree.clear(); return root; }
+        tree[0] = tree.at(last);
+        tree.erase(last);
+        heapify(0);
+        return root;
+    }
+    bool deleteKey(const T& key) {
+        int idx = -1;
+        for (const auto& kv : tree) {
+            if (kv.second == key) { idx = kv.first; break; }
+        }
+        if (idx == -1) return false;
+        int last = (int)tree.size() - 1;
+        if (idx == last) { tree.erase(last); return true; }
+        tree[idx] = tree.at(last);
+        tree.erase(last);
+        int i = idx;
+        while (i != 0) {
+            int p = (i-1)/2;
+            if (ref(p) >= ref(i)) break;
+            std::swap(ref(i), ref(p));
+            i = p;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v), out;
+    int c = 0;
+    for (int i = (int)s.size() - 1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+struct Row {
+    std::size_t N = 0;
+    double ins_ms = 0; std::size_t ins_done = 0; bool ins_abort = false;
+    double top_ms = 0; std::size_t top_iters = 0;
+    double pop_ms = 0; std::size_t pop_done = 0; bool pop_abort = false;
+    double del_ms = 0; std::size_t del_done = 0; bool del_abort = false;
+};
+
+static Row run_one(std::size_t N, std::mt19937_64& rng) {
+    Row r; r.N = N;
+    std::uniform_int_distribution<int> dist(0, 10'000'000);
+
+    std::vector<int> data(N);
+    for (auto& x : data) x = dist(rng);
+
+    // ---- INSERT (budget) ----
+    MaxHeapMap<int> h;
+    {
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < N; ++i) {
+            h.insert(data[i]);
+            ++r.ins_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.ins_abort = true; break;
+            }
+        }
+        r.ins_ms = ms(t0, Clock::now());
+    }
+
+    // ---- TOP ----
+    if (!h.empty()) {
+        r.top_iters = TOP_ITERS;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < r.top_iters; ++i) sink += h.top();
+        r.top_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- POP (moitié, budget) ----
+    {
+        std::size_t half = h.size() / 2;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < half; ++i) {
+            sink += h.pop();
+            ++r.pop_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.pop_abort = true; break;
+            }
+        }
+        r.pop_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- DELETE KEY (cap + budget) ----
+    std::size_t del_count = std::min<std::size_t>(N, DEL_CAP);
+    if (del_count > 0) {
+        MaxHeapMap<int> hd;
+        std::vector<int> keys(del_count);
+        for (std::size_t i = 0; i < del_count; ++i) { int v = (int)i; hd.insert(v); keys[i] = v; }
+        std::shuffle(keys.begin(), keys.end(), rng);
+
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < del_count; ++i) {
+            hd.deleteKey(keys[i]);
+            ++r.del_done;
+            if ((i & 0x0F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.del_abort = true; break;
+            }
+        }
+        r.del_ms = ms(t0, Clock::now());
+    }
+    return r;
+}
+
+int main() {
+    std::mt19937_64 rng(SEED);
+
+    std::cout << "================================================================\n";
+    std::cout << "  Benchmark MaxHeapMap (std::map) — self-contained\n";
+    std::cout << "  Budget/phase = " << BUDGET_MS << " ms | DEL_CAP = " << DEL_CAP
+              << " | TOP_ITERS = " << fmt_u(TOP_ITERS) << "\n";
+    std::cout << "  /!\\ insert/pop = O(log^2 N), top = O(log N), deleteKey = O(N)\n";
+    std::cout << "================================================================\n\n";
+
+    std::vector<Row> rows;
+    rows.reserve(SIZES.size());
+
+    for (std::size_t N : SIZES) {
+        std::cout << ">>> Exécution N = " << fmt_u(N) << " ... " << std::flush;
+        Row r = run_one(N, rng);
+        rows.push_back(r);
+        std::cout << "OK";
+        if (r.ins_abort) std::cout << " [insert ABORT]";
+        if (r.pop_abort) std::cout << " [pop ABORT]";
+        if (r.del_abort) std::cout << " [deleteKey ABORT]";
+        std::cout << "\n";
+    }
+
+    std::cout << "\nRÉSULTATS DÉTAILLÉS\n-------------------\n\n";
+    std::cout << std::fixed << std::setprecision(2);
+
+    for (const auto& r : rows) {
+        double ins_ns = r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+        double top_ns = r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+        double pop_ns = r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+        double del_ns = r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+
+        std::cout << "N = " << fmt_u(r.N) << "\n";
+        std::cout << "  Insert   : " << std::setw(12) << r.ins_ms << " ms | "
+                  << std::setw(14) << ins_ns << " ns/op ("
+                  << fmt_u(r.ins_done) << " / " << fmt_u(r.N)
+                  << (r.ins_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  Top      : " << std::setw(12) << r.top_ms << " ms | "
+                  << std::setw(14) << top_ns << " ns/op ("
+                  << fmt_u(r.top_iters) << " iters)\n";
+        std::cout << "  Pop      : " << std::setw(12) << r.pop_ms << " ms | "
+                  << std::setw(14) << pop_ns << " ns/op ("
+                  << fmt_u(r.pop_done) << (r.pop_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  DeleteKey: " << std::setw(12) << r.del_ms << " ms | "
+                  << std::setw(14) << del_ns << " ns/op ("
+                  << fmt_u(r.del_done) << (r.del_abort ? ", ABORT" : "") << ")\n\n";
+    }
+
+    // Tableau récap
+    std::cout << "TABLEAU RÉCAPITULATIF (ns/op)\n-----------------------------\n";
+    std::cout << std::left  << std::setw(12) << "N"
+              << std::right << std::setw(16) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(16) << "pop"
+              << std::setw(16) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    auto nso = [](const Row& r, int kind) -> double {
+        switch (kind) {
+            case 0: return r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+            case 1: return r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+            case 2: return r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+            default:return r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+        }
+    };
+    for (const auto& r : rows) {
+        std::cout << std::left  << std::setw(12) << fmt_u(r.N)
+                  << std::right << std::setw(16) << nso(r,0)
+                  << std::setw(14) << nso(r,1)
+                  << std::setw(16) << nso(r,2)
+                  << std::setw(16) << nso(r,3) << "\n";
+    }
+
+    // Ratios
+    std::cout << "\nRATIOS ns/op entre N et N/10\n-----------------------------\n";
+    std::cout << "Attendu MaxHeapMap : top ~log(N) (≈1.2-1.5 entre N et N/10)\n";
+    std::cout << "                     insert/pop ~log^2 => ratio ≈ 1.5-2\n";
+    std::cout << "                     deleteKey ~O(N) => ratio ≈ 10\n\n";
+    std::cout << std::left  << std::setw(18) << "N"
+              << std::right << std::setw(14) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(14) << "pop"
+              << std::setw(14) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& a = rows[i-1];
+        const auto& b = rows[i];
+        auto ratio = [](double x, double y) -> double { return (x > 0.0 && y > 0.0) ? y / x : 0.0; };
+        std::cout << std::left  << std::setw(18) << (fmt_u(b.N) + " / " + fmt_u(a.N))
+                  << std::right << std::setw(14) << ratio(nso(a,0), nso(b,0))
+                  << std::setw(14) << ratio(nso(a,1), nso(b,1))
+                  << std::setw(14) << ratio(nso(a,2), nso(b,2))
+                  << std::setw(14) << ratio(nso(a,3), nso(b,3)) << "\n";
+    }
+
+    std::cout << "\nTerminé.\n";
+    return 0;
+}
+
+/*
+resultat terminal:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./bench_heap_map_scale
+================================================================
+  Benchmark MaxHeapMap (std::map) — self-contained
+  Budget/phase = 15000 ms | DEL_CAP = 5000 | TOP_ITERS = 5 000 000
+  /!\ insert/pop = O(log^2 N), top = O(log N), deleteKey = O(N)
+================================================================
+
+>>> Exécution N = 100 ... OK
+>>> Exécution N = 1 000 ... OK
+>>> Exécution N = 10 000 ... OK
+>>> Exécution N = 100 000 ... OK
+>>> Exécution N = 1 000 000 ... OK
+
+RÉSULTATS DÉTAILLÉS
+-------------------
+
+N = 100
+  Insert   :         0.05 ms |         460.40 ns/op (100 / 100)
+  Top      :        33.16 ms |           6.63 ns/op (5 000 000 iters)
+  Pop      :         0.07 ms |        1431.06 ns/op (50)
+  DeleteKey:         0.10 ms |        1002.77 ns/op (100)
+
+N = 1 000
+  Insert   :         0.63 ms |         632.48 ns/op (1 000 / 1 000)
+  Top      :        56.06 ms |          11.21 ns/op (5 000 000 iters)
+  Pop      :         0.82 ms |        1640.60 ns/op (500)
+  DeleteKey:         1.88 ms |        1876.17 ns/op (1 000)
+
+N = 10 000
+  Insert   :         5.34 ms |         533.95 ns/op (10 000 / 10 000)
+  Top      :        66.75 ms |          13.35 ns/op (5 000 000 iters)
+  Pop      :        17.74 ms |        3548.13 ns/op (5 000)
+  DeleteKey:        39.78 ms |        7956.91 ns/op (5 000)
+
+N = 100 000
+  Insert   :        97.91 ms |         979.11 ns/op (100 000 / 100 000)
+  Top      :       149.44 ms |          29.89 ns/op (5 000 000 iters)
+  Pop      :       364.86 ms |        7297.13 ns/op (50 000)
+  DeleteKey:        43.86 ms |        8772.63 ns/op (5 000)
+
+N = 1 000 000
+  Insert   :      1479.81 ms |        1479.81 ns/op (1 000 000 / 1 000 000)
+  Top      :       241.95 ms |          48.39 ns/op (5 000 000 iters)
+  Pop      :      9579.44 ms |       19158.87 ns/op (500 000)
+  DeleteKey:        53.25 ms |       10649.40 ns/op (5 000)
+
+TABLEAU RÉCAPITULATIF (ns/op)
+-----------------------------
+N                     insert           top             pop       deleteKey
+--------------------------------------------------------------------------
+100                   460.40          6.63         1431.06         1002.77
+1 000                 632.48         11.21         1640.60         1876.17
+10 000                533.95         13.35         3548.13         7956.91
+100 000               979.11         29.89         7297.13         8772.63
+1 000 000            1479.81         48.39        19158.87        10649.40
+
+RATIOS ns/op entre N et N/10
+-----------------------------
+Attendu MaxHeapMap : top ~log(N) (≈1.2-1.5 entre N et N/10)
+                     insert/pop ~log^2 => ratio ≈ 1.5-2
+                     deleteKey ~O(N) => ratio ≈ 10
+
+N                         insert           top           pop     deleteKey
+--------------------------------------------------------------------------
+1 000 / 100                 1.37          1.69          1.15          1.87
+10 000 / 1 000              0.84          1.19          2.16          4.24
+100 000 / 10 000            1.83          2.24          2.06          1.10
+1 000 000 / 100 000          1.51          1.62          2.63          1.21
+
+Terminé.
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+*/
+</file>
+
+<file path="bench_heap_raw_scale.cpp">
+// bench_heap_raw_scale.cpp
+// Benchmark MaxHeapRaw (tableau brut new/delete) — self-contained, AUCUN argument CLI.
+//
+// Compilation :
+//   g++ -std=c++17 -O2 -Wall -Wextra -o bench_heap_raw_scale bench_heap_raw_scale.cpp
+// Exécution :
+//   ./bench_heap_raw_scale
+//
+// Règlages : constantes SIZES / BUDGET_MS / DEL_CAP / TOP_ITERS ci-dessous.
+//
+// Complexités :
+//   insert    : O(log N) amorti (grow ×2 → O(1) amorti)
+//   pop       : O(log N)
+//   top       : O(1)
+//   deleteKey : O(N) (recherche linéaire) + O(log N) remontée/descente
+//   => on peut monter à 1e8 (prévoir ~1 Go de RAM : data + buffer).
+
+#include <iostream>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <string>
+#include <cstdint>
+#include <stdexcept>
+
+// ============================================================
+//  CONFIGURATION — modifie ici, rien à passer en ligne de commande
+// ============================================================
+static const std::vector<std::size_t> SIZES = {
+    100ULL, 1'000ULL, 10'000ULL, 100'000ULL,
+    1'000'000ULL, 10'000'000ULL, 100'000'000ULL
+};
+static const double BUDGET_MS = 30000.0;   // budget max par phase (ms)
+static const std::size_t DEL_CAP = 10'000; // deleteKey : cap du nombre d'ops
+static const std::size_t TOP_ITERS = 50'000'000; // itérations pour top()
+static const unsigned SEED = 42;
+// ============================================================
+
+// ---------- MaxHeapRaw (copie minimale de heap_raw.cpp) ----------
+template <typename T>
+class MaxHeapRaw {
+    T*   buf;
+    int  sz;
+    int  cap;
+
+    void grow() {
+        int newCap = (cap == 0) ? 8 : cap * 2;
+        T* newBuf = new T[newCap];
+        for (int i = 0; i < sz; ++i) newBuf[i] = buf[i];
+        delete[] buf;
+        buf = newBuf;
+        cap = newCap;
+    }
+    void heapify(int i) {
+        // Version itérative pour éviter la récursion profonde (sécurité à 1e8)
+        while (true) {
+            int l = 2*i+1, r = 2*i+2, largest = i;
+            if (l < sz && buf[l] > buf[largest]) largest = l;
+            if (r < sz && buf[r] > buf[largest]) largest = r;
+            if (largest == i) break;
+            T tmp = buf[i]; buf[i] = buf[largest]; buf[largest] = tmp;
+            i = largest;
+        }
+    }
+public:
+    MaxHeapRaw() : buf(nullptr), sz(0), cap(0) {}
+    MaxHeapRaw(const MaxHeapRaw&) = delete;
+    MaxHeapRaw& operator=(const MaxHeapRaw&) = delete;
+    ~MaxHeapRaw() { delete[] buf; }
+
+    bool empty() const { return sz == 0; }
+    int  size()  const { return sz; }
+
+    void reserve(int n) {
+        if (n <= cap) return;
+        T* newBuf = new T[n];
+        for (int i = 0; i < sz; ++i) newBuf[i] = buf[i];
+        delete[] buf;
+        buf = newBuf;
+        cap = n;
+    }
+
+    void insert(const T& v) {
+        if (sz == cap) grow();
+        buf[sz++] = v;
+        int i = sz - 1;
+        while (i != 0 && buf[(i-1)/2] < buf[i]) {
+            T tmp = buf[i]; buf[i] = buf[(i-1)/2]; buf[(i-1)/2] = tmp;
+            i = (i-1)/2;
+        }
+    }
+    const T& top() const {
+        if (sz == 0) throw std::runtime_error("top() sur heap vide");
+        return buf[0];
+    }
+    T pop() {
+        if (sz == 0) throw std::runtime_error("pop() sur heap vide");
+        T root = buf[0];
+        buf[0] = buf[--sz];
+        if (sz > 0) heapify(0);
+        return root;
+    }
+    bool deleteKey(const T& key) {
+        int idx = -1;
+        for (int i = 0; i < sz; ++i) if (buf[i] == key) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == sz-1) { --sz; return true; }
+        buf[idx] = buf[--sz];
+        int i = idx;
+        while (i != 0 && buf[(i-1)/2] < buf[i]) {
+            T tmp = buf[i]; buf[i] = buf[(i-1)/2]; buf[(i-1)/2] = tmp;
+            i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v), out;
+    int c = 0;
+    for (int i = (int)s.size() - 1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+struct Row {
+    std::size_t N = 0;
+    double ins_ms = 0; std::size_t ins_done = 0; bool ins_abort = false;
+    double top_ms = 0; std::size_t top_iters = 0;
+    double pop_ms = 0; std::size_t pop_done = 0; bool pop_abort = false;
+    double del_ms = 0; std::size_t del_done = 0; bool del_abort = false;
+};
+
+static Row run_one(std::size_t N, std::mt19937_64& rng) {
+    Row r; r.N = N;
+    std::uniform_int_distribution<int> dist(0, 10'000'000);
+
+    std::vector<int> data(N);
+    for (auto& x : data) x = dist(rng);
+
+    // ---- INSERT (budget) ----
+    MaxHeapRaw<int> h;
+    h.reserve((int)N); // évite les realloc : on mesure le vrai insert, pas grow()
+    {
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < N; ++i) {
+            h.insert(data[i]);
+            ++r.ins_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.ins_abort = true; break;
+            }
+        }
+        r.ins_ms = ms(t0, Clock::now());
+    }
+
+    // ---- TOP ----
+    if (!h.empty()) {
+        r.top_iters = TOP_ITERS;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < r.top_iters; ++i) sink += h.top();
+        r.top_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- POP (moitié, budget) ----
+    {
+        std::size_t half = h.size() / 2;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < half; ++i) {
+            sink += h.pop();
+            ++r.pop_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.pop_abort = true; break;
+            }
+        }
+        r.pop_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- DELETE KEY (cap + budget) ----
+    std::size_t del_count = std::min<std::size_t>(N, DEL_CAP);
+    if (del_count > 0) {
+        MaxHeapRaw<int> hd;
+        hd.reserve((int)del_count);
+        std::vector<int> keys(del_count);
+        for (std::size_t i = 0; i < del_count; ++i) { int v = (int)i; hd.insert(v); keys[i] = v; }
+        std::shuffle(keys.begin(), keys.end(), rng);
+
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < del_count; ++i) {
+            hd.deleteKey(keys[i]);
+            ++r.del_done;
+            if ((i & 0x0F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.del_abort = true; break;
+            }
+        }
+        r.del_ms = ms(t0, Clock::now());
+    }
+    return r;
+}
+
+int main() {
+    std::mt19937_64 rng(SEED);
+
+    std::cout << "================================================================\n";
+    std::cout << "  Benchmark MaxHeapRaw (tableau brut new/delete) — self-contained\n";
+    std::cout << "  Budget/phase = " << BUDGET_MS << " ms | DEL_CAP = " << DEL_CAP
+              << " | TOP_ITERS = " << fmt_u(TOP_ITERS) << "\n";
+    std::cout << "  /!\\ insert/pop = O(log N), top = O(1), deleteKey = O(N)\n";
+    std::cout << "  /!\\ N = 1e8 : ~1 Go de RAM (data + buffer)\n";
+    std::cout << "================================================================\n\n";
+
+    std::vector<Row> rows;
+    rows.reserve(SIZES.size());
+
+    for (std::size_t N : SIZES) {
+        std::cout << ">>> Exécution N = " << fmt_u(N) << " ... " << std::flush;
+        Row r = run_one(N, rng);
+        rows.push_back(r);
+        std::cout << "OK";
+        if (r.ins_abort) std::cout << " [insert ABORT]";
+        if (r.pop_abort) std::cout << " [pop ABORT]";
+        if (r.del_abort) std::cout << " [deleteKey ABORT]";
+        std::cout << "\n";
+    }
+
+    std::cout << "\nRÉSULTATS DÉTAILLÉS\n-------------------\n\n";
+    std::cout << std::fixed << std::setprecision(2);
+
+    for (const auto& r : rows) {
+        double ins_ns = r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+        double top_ns = r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+        double pop_ns = r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+        double del_ns = r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+
+        std::cout << "N = " << fmt_u(r.N) << "\n";
+        std::cout << "  Insert   : " << std::setw(12) << r.ins_ms << " ms | "
+                  << std::setw(14) << ins_ns << " ns/op ("
+                  << fmt_u(r.ins_done) << " / " << fmt_u(r.N)
+                  << (r.ins_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  Top      : " << std::setw(12) << r.top_ms << " ms | "
+                  << std::setw(14) << top_ns << " ns/op ("
+                  << fmt_u(r.top_iters) << " iters)\n";
+        std::cout << "  Pop      : " << std::setw(12) << r.pop_ms << " ms | "
+                  << std::setw(14) << pop_ns << " ns/op ("
+                  << fmt_u(r.pop_done) << (r.pop_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  DeleteKey: " << std::setw(12) << r.del_ms << " ms | "
+                  << std::setw(14) << del_ns << " ns/op ("
+                  << fmt_u(r.del_done) << (r.del_abort ? ", ABORT" : "") << ")\n\n";
+    }
+
+    // Tableau récap
+    std::cout << "TABLEAU RÉCAPITULATIF (ns/op)\n-----------------------------\n";
+    std::cout << std::left  << std::setw(12) << "N"
+              << std::right << std::setw(16) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(16) << "pop"
+              << std::setw(16) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    auto nso = [](const Row& r, int kind) -> double {
+        switch (kind) {
+            case 0: return r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+            case 1: return r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+            case 2: return r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+            default:return r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+        }
+    };
+    for (const auto& r : rows) {
+        std::cout << std::left  << std::setw(12) << fmt_u(r.N)
+                  << std::right << std::setw(16) << nso(r,0)
+                  << std::setw(14) << nso(r,1)
+                  << std::setw(16) << nso(r,2)
+                  << std::setw(16) << nso(r,3) << "\n";
+    }
+
+    // Ratios
+    std::cout << "\nRATIOS ns/op entre N et N/10\n-----------------------------\n";
+    std::cout << "Attendu MaxHeapRaw : top ~1 (O(1)) | insert/pop ~1.1-1.3 (log N) |\n";
+    std::cout << "                     deleteKey ~10 (O(N))\n\n";
+    std::cout << std::left  << std::setw(18) << "N"
+              << std::right << std::setw(14) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(14) << "pop"
+              << std::setw(14) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& a = rows[i-1];
+        const auto& b = rows[i];
+        auto ratio = [](double x, double y) -> double { return (x > 0.0 && y > 0.0) ? y / x : 0.0; };
+        std::cout << std::left  << std::setw(18) << (fmt_u(b.N) + " / " + fmt_u(a.N))
+                  << std::right << std::setw(14) << ratio(nso(a,0), nso(b,0))
+                  << std::setw(14) << ratio(nso(a,1), nso(b,1))
+                  << std::setw(14) << ratio(nso(a,2), nso(b,2))
+                  << std::setw(14) << ratio(nso(a,3), nso(b,3)) << "\n";
+    }
+
+    std::cout << "\nTerminé.\n";
+    return 0;
+}
+
+/*
+Terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./bench_heap_raw_scale
+================================================================
+  Benchmark MaxHeapRaw (tableau brut new/delete) — self-contained
+  Budget/phase = 30000 ms | DEL_CAP = 10000 | TOP_ITERS = 50 000 000
+  /!\ insert/pop = O(log N), top = O(1), deleteKey = O(N)
+  /!\ N = 1e8 : ~1 Go de RAM (data + buffer)
+================================================================
+
+>>> Exécution N = 100 ... OK
+>>> Exécution N = 1 000 ... OK
+>>> Exécution N = 10 000 ... OK
+>>> Exécution N = 100 000 ... OK
+>>> Exécution N = 1 000 000 ... OK
+>>> Exécution N = 10 000 000 ... OK
+>>> Exécution N = 100 000 000 ... OK
+
+RÉSULTATS DÉTAILLÉS
+-------------------
+
+N = 100
+  Insert   :         0.00 ms |          21.36 ns/op (100 / 100)
+  Top      :        27.79 ms |           0.56 ns/op (50 000 000 iters)
+  Pop      :         0.01 ms |         130.78 ns/op (50)
+  DeleteKey:         0.01 ms |         132.40 ns/op (100)
+
+N = 1 000
+  Insert   :         0.03 ms |          27.96 ns/op (1 000 / 1 000)
+  Top      :        32.32 ms |           0.65 ns/op (50 000 000 iters)
+  Pop      :         0.05 ms |          94.29 ns/op (500)
+  DeleteKey:         0.21 ms |         214.35 ns/op (1 000)
+
+N = 10 000
+  Insert   :         0.22 ms |          21.98 ns/op (10 000 / 10 000)
+  Top      :        24.75 ms |           0.49 ns/op (50 000 000 iters)
+  Pop      :         0.62 ms |         123.93 ns/op (5 000)
+  DeleteKey:        11.28 ms |        1128.41 ns/op (10 000)
+
+N = 100 000
+  Insert   :         2.81 ms |          28.06 ns/op (100 000 / 100 000)
+  Top      :        27.26 ms |           0.55 ns/op (50 000 000 iters)
+  Pop      :         7.31 ms |         146.14 ns/op (50 000)
+  DeleteKey:        11.16 ms |        1116.44 ns/op (10 000)
+
+N = 1 000 000
+  Insert   :        22.14 ms |          22.14 ns/op (1 000 000 / 1 000 000)
+  Top      :        26.51 ms |           0.53 ns/op (50 000 000 iters)
+  Pop      :        88.42 ms |         176.83 ns/op (500 000)
+  DeleteKey:         9.60 ms |         960.50 ns/op (10 000)
+
+N = 10 000 000
+  Insert   :       176.05 ms |          17.61 ns/op (10 000 000 / 10 000 000)
+  Top      :        18.89 ms |           0.38 ns/op (50 000 000 iters)
+  Pop      :      1765.75 ms |         353.15 ns/op (5 000 000)
+  DeleteKey:        15.26 ms |        1525.86 ns/op (10 000)
+
+N = 100 000 000
+  Insert   :      2143.14 ms |          21.43 ns/op (100 000 000 / 100 000 000)
+  Top      :        22.16 ms |           0.44 ns/op (50 000 000 iters)
+  Pop      :     26554.19 ms |         531.08 ns/op (50 000 000)
+  DeleteKey:         9.26 ms |         926.10 ns/op (10 000)
+
+TABLEAU RÉCAPITULATIF (ns/op)
+-----------------------------
+N                     insert           top             pop       deleteKey
+--------------------------------------------------------------------------
+100                    21.36          0.56          130.78          132.40
+1 000                  27.96          0.65           94.29          214.35
+10 000                 21.98          0.49          123.93         1128.41
+100 000                28.06          0.55          146.14         1116.44
+1 000 000              22.14          0.53          176.83          960.50
+10 000 000             17.61          0.38          353.15         1525.86
+100 000 000            21.43          0.44          531.08          926.10
+
+RATIOS ns/op entre N et N/10
+-----------------------------
+Attendu MaxHeapRaw : top ~1 (O(1)) | insert/pop ~1.1-1.3 (log N) |
+                     deleteKey ~10 (O(N))
+
+N                         insert           top           pop     deleteKey
+--------------------------------------------------------------------------
+1 000 / 100                 1.31          1.16          0.72          1.62
+10 000 / 1 000              0.79          0.77          1.31          5.26
+100 000 / 10 000            1.28          1.10          1.18          0.99
+1 000 000 / 100 000          0.79          0.97          1.21          0.86
+10 000 000 / 1 000 000          0.80          0.71          2.00          1.59
+100 000 000 / 10 000 000          1.22          1.17          1.50          0.61
+
+Terminé.
+*/
+</file>
+
+<file path="bench_heap_vector_scale.cpp">
+// bench_heap_vector_scale.cpp
+// Benchmark MaxHeapVector (std::vector) — self-contained, AUCUN argument CLI.
+//
+// Compilation :
+//   g++ -std=c++17 -O2 -Wall -Wextra -o bench_heap_vector_scale bench_heap_vector_scale.cpp
+// Exécution :
+//   ./bench_heap_vector_scale
+//
+// Règlages : constantes SIZES / BUDGET_MS / DEL_CAP / TOP_ITERS ci-dessous.
+//
+// Complexités :
+//   insert    : O(log N) amorti (push_back + remontée)
+//   pop       : O(log N)
+//   top       : O(1)
+//   deleteKey : O(N) (recherche linéaire) + O(log N) remontée/descente
+//   => on peut monter à 1e8 (prévoir ~1 Go de RAM : data + buffer).
+
+#include <iostream>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <string>
+#include <cstdint>
+#include <stdexcept>
+
+// ============================================================
+//  CONFIGURATION — modifie ici, rien à passer en ligne de commande
+// ============================================================
+static const std::vector<std::size_t> SIZES = {
+    100ULL, 1'000ULL, 10'000ULL, 100'000ULL,
+    1'000'000ULL, 10'000'000ULL, 100'000'000ULL
+};
+static const double BUDGET_MS = 30000.0;   // budget max par phase (ms)
+static const std::size_t DEL_CAP = 10'000; // deleteKey : cap du nombre d'ops
+static const std::size_t TOP_ITERS = 50'000'000; // itérations pour top()
+static const unsigned SEED = 42;
+// ============================================================
+
+// ---------- MaxHeapVector (copie minimale de heap_vector.cpp) ----------
+template <typename T>
+class MaxHeapVector {
+    std::vector<T> arr;
+
+    void heapify(int i) {
+        // Version itérative pour éviter la récursion profonde (sécurité à 1e8)
+        while (true) {
+            int n = (int)arr.size();
+            int l = 2*i + 1, r = 2*i + 2, largest = i;
+            if (l < n && arr[l] > arr[largest]) largest = l;
+            if (r < n && arr[r] > arr[largest]) largest = r;
+            if (largest == i) break;
+            std::swap(arr[i], arr[largest]);
+            i = largest;
+        }
+    }
+public:
+    void reserve(std::size_t n) { arr.reserve(n); }
+    bool empty() const { return arr.empty(); }
+    int  size()  const { return (int)arr.size(); }
+
+    void insert(const T& v) {
+        arr.push_back(v);
+        int i = (int)arr.size() - 1;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]);
+            i = (i-1)/2;
+        }
+    }
+    const T& top() const {
+        if (arr.empty()) throw std::runtime_error("top() sur heap vide");
+        return arr[0];
+    }
+    T pop() {
+        if (arr.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = arr[0];
+        arr[0] = arr.back();
+        arr.pop_back();
+        if (!arr.empty()) heapify(0);
+        return root;
+    }
+    bool deleteKey(const T& key) {
+        int n = (int)arr.size(), idx = -1;
+        for (int i = 0; i < n; ++i) if (arr[i] == key) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == n-1) { arr.pop_back(); return true; }
+        arr[idx] = arr.back(); arr.pop_back();
+        int i = idx;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]); i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v), out;
+    int c = 0;
+    for (int i = (int)s.size() - 1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+struct Row {
+    std::size_t N = 0;
+    double ins_ms = 0; std::size_t ins_done = 0; bool ins_abort = false;
+    double top_ms = 0; std::size_t top_iters = 0;
+    double pop_ms = 0; std::size_t pop_done = 0; bool pop_abort = false;
+    double del_ms = 0; std::size_t del_done = 0; bool del_abort = false;
+};
+
+static Row run_one(std::size_t N, std::mt19937_64& rng) {
+    Row r; r.N = N;
+    std::uniform_int_distribution<int> dist(0, 10'000'000);
+
+    std::vector<int> data(N);
+    for (auto& x : data) x = dist(rng);
+
+    // ---- INSERT (budget) ----
+    MaxHeapVector<int> h;
+    h.reserve(N); // évite les realloc : on mesure le vrai insert, pas la croissance
+    {
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < N; ++i) {
+            h.insert(data[i]);
+            ++r.ins_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.ins_abort = true; break;
+            }
+        }
+        r.ins_ms = ms(t0, Clock::now());
+    }
+
+    // ---- TOP ----
+    if (!h.empty()) {
+        r.top_iters = TOP_ITERS;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < r.top_iters; ++i) sink += h.top();
+        r.top_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- POP (moitié, budget) ----
+    {
+        std::size_t half = h.size() / 2;
+        volatile long long sink = 0;
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < half; ++i) {
+            sink += h.pop();
+            ++r.pop_done;
+            if ((i & 0x3F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.pop_abort = true; break;
+            }
+        }
+        r.pop_ms = ms(t0, Clock::now());
+        (void)sink;
+    }
+
+    // ---- DELETE KEY (cap + budget) ----
+    std::size_t del_count = std::min<std::size_t>(N, DEL_CAP);
+    if (del_count > 0) {
+        MaxHeapVector<int> hd;
+        hd.reserve(del_count);
+        std::vector<int> keys(del_count);
+        for (std::size_t i = 0; i < del_count; ++i) { int v = (int)i; hd.insert(v); keys[i] = v; }
+        std::shuffle(keys.begin(), keys.end(), rng);
+
+        auto t0 = Clock::now();
+        for (std::size_t i = 0; i < del_count; ++i) {
+            hd.deleteKey(keys[i]);
+            ++r.del_done;
+            if ((i & 0x0F) == 0 && ms(t0, Clock::now()) > BUDGET_MS) {
+                r.del_abort = true; break;
+            }
+        }
+        r.del_ms = ms(t0, Clock::now());
+    }
+    return r;
+}
+
+int main() {
+    std::mt19937_64 rng(SEED);
+
+    std::cout << "================================================================\n";
+    std::cout << "  Benchmark MaxHeapVector (std::vector) — self-contained\n";
+    std::cout << "  Budget/phase = " << BUDGET_MS << " ms | DEL_CAP = " << DEL_CAP
+              << " | TOP_ITERS = " << fmt_u(TOP_ITERS) << "\n";
+    std::cout << "  /!\\ insert/pop = O(log N), top = O(1), deleteKey = O(N)\n";
+    std::cout << "  /!\\ N = 1e8 : ~1 Go de RAM (data + buffer)\n";
+    std::cout << "================================================================\n\n";
+
+    std::vector<Row> rows;
+    rows.reserve(SIZES.size());
+
+    for (std::size_t N : SIZES) {
+        std::cout << ">>> Exécution N = " << fmt_u(N) << " ... " << std::flush;
+        Row r = run_one(N, rng);
+        rows.push_back(r);
+        std::cout << "OK";
+        if (r.ins_abort) std::cout << " [insert ABORT]";
+        if (r.pop_abort) std::cout << " [pop ABORT]";
+        if (r.del_abort) std::cout << " [deleteKey ABORT]";
+        std::cout << "\n";
+    }
+
+    std::cout << "\nRÉSULTATS DÉTAILLÉS\n-------------------\n\n";
+    std::cout << std::fixed << std::setprecision(2);
+
+    for (const auto& r : rows) {
+        double ins_ns = r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+        double top_ns = r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+        double pop_ns = r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+        double del_ns = r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+
+        std::cout << "N = " << fmt_u(r.N) << "\n";
+        std::cout << "  Insert   : " << std::setw(12) << r.ins_ms << " ms | "
+                  << std::setw(14) << ins_ns << " ns/op ("
+                  << fmt_u(r.ins_done) << " / " << fmt_u(r.N)
+                  << (r.ins_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  Top      : " << std::setw(12) << r.top_ms << " ms | "
+                  << std::setw(14) << top_ns << " ns/op ("
+                  << fmt_u(r.top_iters) << " iters)\n";
+        std::cout << "  Pop      : " << std::setw(12) << r.pop_ms << " ms | "
+                  << std::setw(14) << pop_ns << " ns/op ("
+                  << fmt_u(r.pop_done) << (r.pop_abort ? ", ABORT" : "") << ")\n";
+        std::cout << "  DeleteKey: " << std::setw(12) << r.del_ms << " ms | "
+                  << std::setw(14) << del_ns << " ns/op ("
+                  << fmt_u(r.del_done) << (r.del_abort ? ", ABORT" : "") << ")\n\n";
+    }
+
+    // Tableau récap
+    std::cout << "TABLEAU RÉCAPITULATIF (ns/op)\n-----------------------------\n";
+    std::cout << std::left  << std::setw(12) << "N"
+              << std::right << std::setw(16) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(16) << "pop"
+              << std::setw(16) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    auto nso = [](const Row& r, int kind) -> double {
+        switch (kind) {
+            case 0: return r.ins_done ? r.ins_ms * 1e6 / (double)r.ins_done : 0.0;
+            case 1: return r.top_iters ? r.top_ms * 1e6 / (double)r.top_iters : 0.0;
+            case 2: return r.pop_done ? r.pop_ms * 1e6 / (double)r.pop_done : 0.0;
+            default:return r.del_done ? r.del_ms * 1e6 / (double)r.del_done : 0.0;
+        }
+    };
+    for (const auto& r : rows) {
+        std::cout << std::left  << std::setw(12) << fmt_u(r.N)
+                  << std::right << std::setw(16) << nso(r,0)
+                  << std::setw(14) << nso(r,1)
+                  << std::setw(16) << nso(r,2)
+                  << std::setw(16) << nso(r,3) << "\n";
+    }
+
+    // Ratios
+    std::cout << "\nRATIOS ns/op entre N et N/10\n-----------------------------\n";
+    std::cout << "Attendu MaxHeapVector : top ~1 (O(1)) | insert/pop ~1.1-1.3 (log N) |\n";
+    std::cout << "                        deleteKey ~10 (O(N))\n\n";
+    std::cout << std::left  << std::setw(18) << "N"
+              << std::right << std::setw(14) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(14) << "pop"
+              << std::setw(14) << "deleteKey" << "\n";
+    std::cout << std::string(74, '-') << "\n";
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& a = rows[i-1];
+        const auto& b = rows[i];
+        auto ratio = [](double x, double y) -> double { return (x > 0.0 && y > 0.0) ? y / x : 0.0; };
+        std::cout << std::left  << std::setw(18) << (fmt_u(b.N) + " / " + fmt_u(a.N))
+                  << std::right << std::setw(14) << ratio(nso(a,0), nso(b,0))
+                  << std::setw(14) << ratio(nso(a,1), nso(b,1))
+                  << std::setw(14) << ratio(nso(a,2), nso(b,2))
+                  << std::setw(14) << ratio(nso(a,3), nso(b,3)) << "\n";
+    }
+
+    std::cout << "\nTerminé.\n";
+    return 0;
+}
+
+/*
+Terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./bench_heap_vector_scale
+================================================================
+  Benchmark MaxHeapVector (std::vector) — self-contained
+  Budget/phase = 30000 ms | DEL_CAP = 10000 | TOP_ITERS = 50 000 000
+  /!\ insert/pop = O(log N), top = O(1), deleteKey = O(N)
+  /!\ N = 1e8 : ~1 Go de RAM (data + buffer)
+================================================================
+
+>>> Exécution N = 100 ... OK
+>>> Exécution N = 1 000 ... OK
+>>> Exécution N = 10 000 ... OK
+>>> Exécution N = 100 000 ... OK
+>>> Exécution N = 1 000 000 ... OK
+>>> Exécution N = 10 000 000 ... OK
+>>> Exécution N = 100 000 000 ... OK
+
+RÉSULTATS DÉTAILLÉS
+-------------------
+
+N = 100
+  Insert   :         0.00 ms |          23.25 ns/op (100 / 100)
+  Top      :        29.26 ms |           0.59 ns/op (50 000 000 iters)
+  Pop      :         0.00 ms |          72.02 ns/op (50)
+  DeleteKey:         0.01 ms |          57.28 ns/op (100)
+
+N = 1 000
+  Insert   :         0.03 ms |          28.71 ns/op (1 000 / 1 000)
+  Top      :        27.97 ms |           0.56 ns/op (50 000 000 iters)
+  Pop      :         0.04 ms |          76.41 ns/op (500)
+  DeleteKey:         0.16 ms |         163.31 ns/op (1 000)
+
+N = 10 000
+  Insert   :         0.21 ms |          21.11 ns/op (10 000 / 10 000)
+  Top      :        24.49 ms |           0.49 ns/op (50 000 000 iters)
+  Pop      :         0.57 ms |         114.82 ns/op (5 000)
+  DeleteKey:        11.90 ms |        1189.84 ns/op (10 000)
+
+N = 100 000
+  Insert   :         1.91 ms |          19.07 ns/op (100 000 / 100 000)
+  Top      :        26.30 ms |           0.53 ns/op (50 000 000 iters)
+  Pop      :         6.68 ms |         133.58 ns/op (50 000)
+  DeleteKey:        11.59 ms |        1159.30 ns/op (10 000)
+
+N = 1 000 000
+  Insert   :        22.03 ms |          22.03 ns/op (1 000 000 / 1 000 000)
+  Top      :        22.28 ms |           0.45 ns/op (50 000 000 iters)
+  Pop      :        84.93 ms |         169.86 ns/op (500 000)
+  DeleteKey:         9.43 ms |         942.95 ns/op (10 000)
+
+N = 10 000 000
+  Insert   :       185.47 ms |          18.55 ns/op (10 000 000 / 10 000 000)
+  Top      :        27.16 ms |           0.54 ns/op (50 000 000 iters)
+  Pop      :      1707.31 ms |         341.46 ns/op (5 000 000)
+  DeleteKey:        13.97 ms |        1396.76 ns/op (10 000)
+
+N = 100 000 000
+  Insert   :      2292.93 ms |          22.93 ns/op (100 000 000 / 100 000 000)
+  Top      :        51.77 ms |           1.04 ns/op (50 000 000 iters)
+  Pop      :     25710.84 ms |         514.22 ns/op (50 000 000)
+  DeleteKey:         9.08 ms |         907.96 ns/op (10 000)
+
+TABLEAU RÉCAPITULATIF (ns/op)
+-----------------------------
+N                     insert           top             pop       deleteKey
+--------------------------------------------------------------------------
+100                    23.25          0.59           72.02           57.28
+1 000                  28.71          0.56           76.41          163.31
+10 000                 21.11          0.49          114.82         1189.84
+100 000                19.07          0.53          133.58         1159.30
+1 000 000              22.03          0.45          169.86          942.95
+10 000 000             18.55          0.54          341.46         1396.76
+100 000 000            22.93          1.04          514.22          907.96
+
+RATIOS ns/op entre N et N/10
+-----------------------------
+Attendu MaxHeapVector : top ~1 (O(1)) | insert/pop ~1.1-1.3 (log N) |
+                        deleteKey ~10 (O(N))
+
+N                         insert           top           pop     deleteKey
+--------------------------------------------------------------------------
+1 000 / 100                 1.23          0.96          1.06          2.85
+10 000 / 1 000              0.74          0.88          1.50          7.29
+100 000 / 10 000            0.90          1.07          1.16          0.97
+1 000 000 / 100 000          1.16          0.85          1.27          0.81
+10 000 000 / 1 000 000          0.84          1.22          2.01          1.48
+100 000 000 / 10 000 000          1.24          1.91          1.51          0.65
+
+Terminé.
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+*/
+</file>
+
+<file path="bench_maxheap_scale.cpp">
+// bench_maxheap_scale.cpp
+// Benchmark augmentatif : insert / top / pop / deleteKey sur MaxHeap (vector)
+// Balaye N = 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8 (configurable).
+//
+// Compilation :
+//   g++ -std=c++17 -O2 -Wall -Wextra -o bench_maxheap_scale bench_maxheap_scale.cpp
+// Exécution :
+//   ./bench_maxheap_scale              # tailles par défaut
+//   ./bench_maxheap_scale 1000 100000  # tailles custom
+//
+// Conseils de lecture :
+//   - ns/op permet de comparer les tailles entre elles (complexité).
+//   - insert ≈ O(log N) → ns/op doit croître lentement avec N.
+//   - top     ≈ O(1)     → ns/op quasi constant.
+//   - pop     ≈ O(log N) → ns/op croît comme insert.
+//   - deleteKey ≈ O(N)   → ns/op croît LINÉAIREMENT avec N (recherche linéaire).
+
+#include <iostream>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <string>
+#include <cstdint>
+
+// ---------- MaxHeap minimal ----------
+template <typename T>
+class MaxHeap {
+    std::vector<T> arr;
+    void heapify(int i) {
+        int n = (int)arr.size();
+        while (true) {
+            int l = 2*i+1, r = 2*i+2, largest = i;
+            if (l < n && arr[l] > arr[largest]) largest = l;
+            if (r < n && arr[r] > arr[largest]) largest = r;
+            if (largest == i) break;
+            std::swap(arr[i], arr[largest]);
+            i = largest;
+        }
+    }
+public:
+    void reserve(std::size_t n) { arr.reserve(n); }
+    void insert(const T& v) {
+        arr.push_back(v);
+        int i = (int)arr.size() - 1;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]);
+            i = (i-1)/2;
+        }
+    }
+    T pop() {
+        T root = arr[0];
+        arr[0] = arr.back(); arr.pop_back();
+        if (!arr.empty()) heapify(0);
+        return root;
+    }
+    const T& top() const { return arr[0]; }
+    int size() const { return (int)arr.size(); }
+    bool empty() const { return arr.empty(); }
+    bool deleteKey(const T& k) {
+        int n = (int)arr.size(), idx = -1;
+        for (int i = 0; i < n; ++i) if (arr[i] == k) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == n-1) { arr.pop_back(); return true; }
+        arr[idx] = arr.back(); arr.pop_back();
+        int i = idx;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]); i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+
+struct Row {
+    std::size_t N;
+    double ins_ms, ins_ns;
+    double top_ms, top_ns;     // par op
+    double pop_ms, pop_ns;     // par op
+    double del_ms, del_ns;     // par op (deleteKey sur min(N, 10k) éléments)
+    std::size_t top_iters;
+    std::size_t pop_count;
+    std::size_t del_count;
+};
+
+// Formate les grands nombres avec séparateurs (1'000'000 -> "1 000 000")
+static std::string fmt_u(std::uint64_t v) {
+    std::string s = std::to_string(v);
+    std::string out;
+    int c = 0;
+    for (int i = (int)s.size() - 1; i >= 0; --i) {
+        out.push_back(s[i]);
+        if (++c == 3 && i != 0) { out.push_back(' '); c = 0; }
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+// Choisit un nombre d'itérations "top" pour rester raisonnable en temps
+// (au moins 1e4, au plus 1e7, et ~ 3e8 opérations au total).
+static std::size_t pick_top_iters(std::size_t N) {
+    // top est O(1) ; viser ~ 50M d'appels pour une mesure stable
+    const std::size_t TARGET = 50'000'000;
+    std::size_t it = TARGET;
+    if (it < 10'000) it = 10'000;
+    if (it > 20'000'000) it = 20'000'000;
+    (void)N;
+    return it;
+}
+
+static Row run_one(std::size_t N, std::mt19937_64& rng) {
+    Row r{};
+    r.N = N;
+
+    std::uniform_int_distribution<int> dist(0, 10'000'000);
+
+    // Pré-génération des données (hors mesure)
+    std::vector<int> data(N);
+    for (auto& x : data) x = dist(rng);
+
+    // ---- 1) INSERT ----
+    MaxHeap<int> h;
+    h.reserve(N);
+    auto t0 = Clock::now();
+    for (int v : data) h.insert(v);
+    auto t1 = Clock::now();
+    r.ins_ms = ms(t0, t1);
+    r.ins_ns = r.ins_ms * 1e6 / (double)N;
+
+    // ---- 2) TOP ----
+    r.top_iters = pick_top_iters(N);
+    volatile long long sink = 0;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < r.top_iters; ++i) sink += h.top();
+    t1 = Clock::now();
+    r.top_ms = ms(t0, t1);
+    r.top_ns = r.top_ms * 1e6 / (double)r.top_iters;
+
+    // ---- 3) POP (moitié du heap) ----
+    r.pop_count = h.size() / 2;
+    if (r.pop_count > 0) {
+        t0 = Clock::now();
+        for (std::size_t i = 0; i < r.pop_count; ++i) sink += h.pop();
+        t1 = Clock::now();
+        r.pop_ms = ms(t0, t1);
+        r.pop_ns = r.pop_ms * 1e6 / (double)r.pop_count;
+    } else {
+        r.pop_ms = r.pop_ns = 0.0;
+    }
+
+    // ---- 4) DELETE KEY ----
+    // On construit un heap dédié de taille del_count (capped), on y supprime
+    // toutes les clés dans un ordre aléatoire. La recherche étant linéaire,
+    // le coût par op est représentatif de O(N).
+    r.del_count = std::min<std::size_t>(N, 10'000);
+    if (r.del_count > 0) {
+        MaxHeap<int> hd;
+        hd.reserve(r.del_count);
+        std::vector<int> keys(r.del_count);
+        for (std::size_t i = 0; i < r.del_count; ++i) { int v = (int)i; hd.insert(v); keys[i] = v; }
+        std::shuffle(keys.begin(), keys.end(), rng);
+
+        t0 = Clock::now();
+        for (int k : keys) hd.deleteKey(k);
+        t1 = Clock::now();
+        r.del_ms = ms(t0, t1);
+        r.del_ns = r.del_ms * 1e6 / (double)r.del_count;
+    } else {
+        r.del_ms = r.del_ns = 0.0;
+    }
+
+    // Empêche l'optimisation
+    sink += h.size();
+    return r;
+}
+
+int main(int argc, char** argv) {
+    // Tailles par défaut : 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8
+    std::vector<std::size_t> sizes;
+    if (argc > 1) {
+        for (int i = 1; i < argc; ++i) sizes.push_back(std::stoull(argv[i]));
+    } else {
+        sizes = {100ULL, 1'000ULL, 10'000ULL, 100'000ULL,
+                 1'000'000ULL, 10'000'000ULL, 100'000'000ULL};
+    }
+
+    std::mt19937_64 rng(42); // graine fixe -> résultats reproductibles
+
+    std::cout << "============================================================\n";
+    std::cout << "  Benchmark MaxHeap — balayage de N\n";
+    std::cout << "  (N = nombre d'éléments ; temps total en ms, par op en ns)\n";
+    std::cout << "============================================================\n\n";
+
+    std::vector<Row> rows;
+    rows.reserve(sizes.size());
+
+    for (std::size_t N : sizes) {
+        std::cout << ">>> Exécution N = " << fmt_u(N) << " ... " << std::flush;
+        Row r = run_one(N, rng);
+        rows.push_back(r);
+        std::cout << "OK\n";
+    }
+
+    std::cout << "\n";
+    std::cout << "RÉSULTATS DÉTAILLÉS\n";
+    std::cout << "-------------------\n\n";
+
+    for (const auto& r : rows) {
+        std::cout << "N = " << fmt_u(r.N) << "\n";
+        std::cout << std::fixed << std::setprecision(2);
+        std::cout << "  Insert   : " << std::setw(12) << r.ins_ms << " ms total  | "
+                  << std::setw(10) << r.ins_ns << " ns/op\n";
+        std::cout << "  Top      : " << std::setw(12) << r.top_ms << " ms total  | "
+                  << std::setw(10) << r.top_ns << " ns/op  ("
+                  << fmt_u(r.top_iters) << " iters)\n";
+        std::cout << "  Pop      : " << std::setw(12) << r.pop_ms << " ms total  | "
+                  << std::setw(10) << r.pop_ns << " ns/op  ("
+                  << fmt_u(r.pop_count) << " pops)\n";
+        std::cout << "  DeleteKey: " << std::setw(12) << r.del_ms << " ms total  | "
+                  << std::setw(10) << r.del_ns << " ns/op  ("
+                  << fmt_u(r.del_count) << " ops)\n\n";
+    }
+
+    // ---- Tableau récapitulatif ----
+    std::cout << "TABLEAU RÉCAPITULATIF (ns/op)\n";
+    std::cout << "-----------------------------\n";
+    std::cout << std::left  << std::setw(12) << "N"
+              << std::right << std::setw(14) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(14) << "pop"
+              << std::setw(14) << "deleteKey" << "\n";
+    std::cout << std::string(68, '-') << "\n";
+    for (const auto& r : rows) {
+        std::cout << std::left  << std::setw(12) << fmt_u(r.N)
+                  << std::right << std::setw(14) << std::setprecision(2) << r.ins_ns
+                  << std::setw(14) << r.top_ns
+                  << std::setw(14) << r.pop_ns
+                  << std::setw(14) << r.del_ns << "\n";
+    }
+
+    // ---- Analyse de complexité (ratios entre tailles successives) ----
+    std::cout << "\nANALYSE DE COMPLEXITÉ (ratio ns/op entre N et N/10)\n";
+    std::cout << "----------------------------------------------------\n";
+    std::cout << "Attendu : top ~ 1 | insert/pop ~ log(N) (≈ 1.1-1.3) | deleteKey ~ 10 (linéaire)\n\n";
+    std::cout << std::left  << std::setw(12) << "N"
+              << std::right << std::setw(14) << "insert"
+              << std::setw(14) << "top"
+              << std::setw(14) << "pop"
+              << std::setw(14) << "deleteKey" << "\n";
+    std::cout << std::string(68, '-') << "\n";
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& a = rows[i-1];
+        const auto& b = rows[i];
+        auto ratio = [](double x, double y) -> double {
+            return (x > 0.0 && y > 0.0) ? y / x : 0.0;
+        };
+        std::cout << std::left  << std::setw(12) << (fmt_u(b.N) + " / " + fmt_u(a.N))
+                  << std::right << std::setw(14) << std::setprecision(2) << ratio(a.ins_ns, b.ins_ns)
+                  << std::setw(14) << ratio(a.top_ns, b.top_ns)
+                  << std::setw(14) << ratio(a.pop_ns, b.pop_ns)
+                  << std::setw(14) << ratio(a.del_ns, b.del_ns) << "\n";
+    }
+
+    std::cout << "\nTerminé.\n";
+    return 0;
+}
+
+/*
+Terminal resulat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./bench_maxheap_scale
+============================================================
+  Benchmark MaxHeap — balayage de N
+  (N = nombre d'éléments ; temps total en ms, par op en ns)
+============================================================
+
+>>> Exécution N = 100 ... OK
+>>> Exécution N = 1 000 ... OK
+>>> Exécution N = 10 000 ... OK
+>>> Exécution N = 100 000 ... OK
+>>> Exécution N = 1 000 000 ... OK
+>>> Exécution N = 10 000 000 ... OK
+>>> Exécution N = 100 000 000 ... OK
+
+RÉSULTATS DÉTAILLÉS
+-------------------
+
+N = 100
+  Insert   :         0.00 ms total  |      20.31 ns/op
+  Top      :         8.60 ms total  |       0.43 ns/op  (20 000 000 iters)
+  Pop      :         0.00 ms total  |      60.28 ns/op  (50 pops)
+  DeleteKey:         0.00 ms total  |      47.41 ns/op  (100 ops)
+
+N = 1 000
+  Insert   :         0.02 ms total  |      22.98 ns/op
+  Top      :        11.71 ms total  |       0.59 ns/op  (20 000 000 iters)
+  Pop      :         0.04 ms total  |      83.75 ns/op  (500 pops)
+  DeleteKey:         0.18 ms total  |     175.67 ns/op  (1 000 ops)
+
+N = 10 000
+  Insert   :         0.20 ms total  |      19.93 ns/op
+  Top      :        23.22 ms total  |       1.16 ns/op  (20 000 000 iters)
+  Pop      :         0.70 ms total  |     139.62 ns/op  (5 000 pops)
+  DeleteKey:        11.53 ms total  |    1153.11 ns/op  (10 000 ops)
+
+N = 100 000
+  Insert   :         2.42 ms total  |      24.18 ns/op
+  Top      :         9.70 ms total  |       0.48 ns/op  (20 000 000 iters)
+  Pop      :        10.21 ms total  |     204.19 ns/op  (50 000 pops)
+  DeleteKey:        13.74 ms total  |    1374.39 ns/op  (10 000 ops)
+
+N = 1 000 000
+  Insert   :        24.15 ms total  |      24.15 ns/op
+  Top      :        19.54 ms total  |       0.98 ns/op  (20 000 000 iters)
+  Pop      :        83.51 ms total  |     167.01 ns/op  (500 000 pops)
+  DeleteKey:        13.01 ms total  |    1301.07 ns/op  (10 000 ops)
+
+N = 10 000 000
+  Insert   :       182.55 ms total  |      18.25 ns/op
+  Top      :         8.40 ms total  |       0.42 ns/op  (20 000 000 iters)
+  Pop      :      1562.81 ms total  |     312.56 ns/op  (5 000 000 pops)
+  DeleteKey:         9.22 ms total  |     921.88 ns/op  (10 000 ops)
+
+N = 100 000 000
+  Insert   :      1778.24 ms total  |      17.78 ns/op
+  Top      :         8.25 ms total  |       0.41 ns/op  (20 000 000 iters)
+  Pop      :     27533.74 ms total  |     550.67 ns/op  (50 000 000 pops)
+  DeleteKey:        11.39 ms total  |    1138.95 ns/op  (10 000 ops)
+
+TABLEAU RÉCAPITULATIF (ns/op)
+-----------------------------
+N                   insert           top           pop     deleteKey
+--------------------------------------------------------------------
+100                  20.31          0.43         60.28         47.41
+1 000                22.98          0.59         83.75        175.67
+10 000               19.93          1.16        139.62       1153.11
+100 000              24.18          0.48        204.19       1374.39
+1 000 000            24.15          0.98        167.01       1301.07
+10 000 000           18.25          0.42        312.56        921.88
+100 000 000          17.78          0.41        550.67       1138.95
+
+ANALYSE DE COMPLEXITÉ (ratio ns/op entre N et N/10)
+----------------------------------------------------
+Attendu : top ~ 1 | insert/pop ~ log(N) (≈ 1.1-1.3) | deleteKey ~ 10 (linéaire)
+
+N                   insert           top           pop     deleteKey
+--------------------------------------------------------------------
+1 000 / 100           1.13          1.36          1.39          3.71
+10 000 / 1 000          0.87          1.98          1.67          6.56
+100 000 / 10 000          1.21          0.42          1.46          1.19
+1 000 000 / 100 000          1.00          2.01          0.82          0.95
+10 000 000 / 1 000 000          0.76          0.43          1.87          0.71
+100 000 000 / 10 000 000          0.97          0.98          1.76          1.24
+
+Terminé.
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+*/
+</file>
+
+<file path="bench_maxheap.cpp">
+// bench_maxheap.cpp
+// Benchmark : insert / pop / top / deleteKey sur max heap (vector)
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o bench_maxheap bench_maxheap.cpp
+
+#include <iostream>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <string>
+
+// ---------- MaxHeap minimal (même logique que maxheap_simple) ----------
+template <typename T>
+class MaxHeap {
+    std::vector<T> arr;
+    void heapify(int i) {
+        int n = (int)arr.size();
+        int l = 2*i+1, r = 2*i+2, largest = i;
+        if (l < n && arr[l] > arr[largest]) largest = l;
+        if (r < n && arr[r] > arr[largest]) largest = r;
+        if (largest != i) { std::swap(arr[i], arr[largest]); heapify(largest); }
+    }
+public:
+    void reserve(std::size_t n) { arr.reserve(n); }
+    void insert(const T& v) {
+        arr.push_back(v);
+        int i = (int)arr.size() - 1;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]);
+            i = (i-1)/2;
+        }
+    }
+    T pop() {
+        T root = arr[0];
+        arr[0] = arr.back(); arr.pop_back();
+        if (!arr.empty()) heapify(0);
+        return root;
+    }
+    const T& top() const { return arr[0]; }
+    int size() const { return (int)arr.size(); }
+    bool empty() const { return arr.empty(); }
+    bool deleteKey(const T& k) {
+        int n = (int)arr.size(), idx = -1;
+        for (int i = 0; i < n; ++i) if (arr[i] == k) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == n-1) { arr.pop_back(); return true; }
+        arr[idx] = arr.back(); arr.pop_back();
+        int i = idx;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]); i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+};
+
+using Clock = std::chrono::high_resolution_clock;
+static double ms(Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+
+int main(int argc, char** argv) {
+    std::size_t N = (argc > 1) ? std::stoull(argv[1]) : 1'000'000;
+
+    std::mt19937_64 rng(42);
+    std::uniform_int_distribution<int> dist(0, 10'000'000);
+
+    std::vector<int> data(N);
+    for (auto& x : data) x = dist(rng);
+
+    std::cout << "=== Benchmark MaxHeap (N = " << N << ") ===\n";
+
+    // 1) INSERT
+    MaxHeap<int> h; h.reserve(N);
+    auto t0 = Clock::now();
+    for (int v : data) h.insert(v);
+    auto t1 = Clock::now();
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Insert total : " << ms(t0,t1) << " ms ("
+              << ms(t0,t1)/N*1e6 << " ns/op)\n";
+
+    // 2) TOP (répété 10M fois pour mesurer)
+    const int TOP_ITERS = 10'000'000;
+    t0 = Clock::now();
+    volatile long long sink = 0;
+    for (int i = 0; i < TOP_ITERS; ++i) sink += h.top();
+    t1 = Clock::now();
+    std::cout << "Top x" << TOP_ITERS << " : " << ms(t0,t1) << " ms ("
+              << ms(t0,t1)/TOP_ITERS*1e6 << " ns/op)\n";
+
+    // 3) POP (vide la moitié)
+    std::size_t half = h.size() / 2;
+    t0 = Clock::now();
+    for (std::size_t i = 0; i < half; ++i) sink += h.pop();
+    t1 = Clock::now();
+    std::cout << "Pop " << half << " éléments : " << ms(t0,t1) << " ms ("
+              << ms(t0,t1)/half*1e6 << " ns/op)\n";
+
+    // 4) DELETE KEY (1000 suppressions aléatoires)
+    std::uniform_int_distribution<int> pick(0, (int)h.size()-1);
+    // On ne connait pas la position -> on tire une valeur via un tableau temporaire
+    // (simplification : on supprime des valeurs présentes)
+    MaxHeap<int> h2; h2.reserve(N/4);
+    for (std::size_t i = 0; i < N/4; ++i) h2.insert(data[i]);
+
+    std::vector<int> toDelete;
+    toDelete.reserve(1000);
+    // On récupère 1000 valeurs existantes en les pioquant par pop puis re-insertion
+    // (ceci est un artefact de mesure, ne pas reproduire en prod)
+    // Alternative simple : deleteKey sur des valeurs injectées connues
+    MaxHeap<int> h3; h3.reserve(1000);
+    std::vector<int> keys;
+    for (int i = 0; i < 1000; ++i) { h3.insert(i); keys.push_back(i); }
+    std::shuffle(keys.begin(), keys.end(), rng);
+
+    t0 = Clock::now();
+    for (int k : keys) h3.deleteKey(k);
+    t1 = Clock::now();
+    std::cout << "DeleteKey x1000 : " << ms(t0,t1) << " ms\n";
+
+    // 5) BUILD (vector -> heap en O(n) implicite via insert=O(n log n) déjà mesuré)
+    // On mesure aussi buildHeap explicite pour comparaison
+    // (non inclus ici par souci de concision, voir maxheap_simple pour buildHeap)
+
+    std::cout << "Sink = " << sink << " (empêche l'optimisation)\n";
+    return 0;
+}
+
+/*
+Terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./bench_maxheap
+=== Benchmark MaxHeap (N = 1000000) ===
+Insert total : 85.42 ms (85.42 ns/op)
+Top x10000000 : 88.80 ms (8.88 ns/op)
+Pop 500000 éléments : 500.60 ms (1001.20 ns/op)
+DeleteKey x1000 : 1.49 ms
+Sink = 103751644997586 (empêche l'optimisation)
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+
+
+
+*/
+</file>
+
+<file path="heap_list.cpp">
+// heap_list.cpp — Max Heap avec std::list
+// ATTENTION : std::list n'offre PAS d'accès aléatoire.
+// On doit utiliser std::next(lst.begin(), i) → O(i).
+// Résultat : insert/pop en O(n) au lieu de O(log n). Version pédagogique seulement.
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o heap_list heap_list.cpp
+
+#include <iostream>
+#include <list>
+#include <iterator>
+#include <stdexcept>
+
+template <typename T>
+class MaxHeapList {
+    std::list<T> lst;
+
+    // Accès par indice : O(i) car std::list n'est pas contigu
+    typename std::list<T>::iterator at(int i) {
+        return std::next(lst.begin(), i);
+    }
+
+    void heapify(int i) {
+        int n = (int)lst.size();
+        int l = 2*i + 1, r = 2*i + 2, largest = i;
+
+        auto itLargest = at(largest);
+        if (l < n) {
+            auto itL = at(l);
+            if (*itL > *itLargest) { largest = l; itLargest = itL; }
+        }
+        if (r < n) {
+            auto itR = at(r);
+            if (*itR > *itLargest) { largest = r; itLargest = itR; }
+        }
+        if (largest != i) {
+            std::swap(*at(i), *at(largest));
+            heapify(largest);
+        }
+    }
+
+public:
+    bool empty() const { return lst.empty(); }
+    int  size()  const { return (int)lst.size(); }
+
+    void insert(const T& v) {
+        lst.push_back(v);
+        int i = (int)lst.size() - 1;
+        while (i != 0) {
+            int p = (i - 1) / 2;
+            auto itI = at(i), itP = at(p);
+            if (*itP >= *itI) break;
+            std::swap(*itI, *itP);
+            i = p;
+        }
+    }
+
+    const T& top() const {
+        if (lst.empty()) throw std::runtime_error("top() sur heap vide");
+        return lst.front();
+    }
+
+    T pop() {
+        if (lst.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = lst.front();
+        // remplacer la racine par le dernier
+        *lst.begin() = lst.back();
+        lst.pop_back();
+        if (!lst.empty()) heapify(0);
+        return root;
+    }
+
+    bool deleteKey(const T& key) {
+        int n = (int)lst.size(), idx = -1, k = 0;
+        for (auto it = lst.begin(); it != lst.end(); ++it, ++k) {
+            if (*it == key) { idx = k; break; }
+        }
+        if (idx == -1) return false;
+        if (idx == n-1) { lst.pop_back(); return true; }
+
+        *at(idx) = lst.back();
+        lst.pop_back();
+        int i = idx;
+        // remonter
+        while (i != 0) {
+            int p = (i-1)/2;
+            auto itI = at(i), itP = at(p);
+            if (*itP >= *itI) break;
+            std::swap(*itI, *itP);
+            i = p;
+        }
+        // descendre
+        heapify(i);
+        return true;
+    }
+
+    void print(std::ostream& os = std::cout) const {
+        os << "MaxHeapList: [ ";
+        for (const auto& v : lst) os << v << ' ';
+        os << "]\n";
+    }
+};
+
+int main() {
+    MaxHeapList<int> h;
+    for (int v : {88, 1, 10, 2, 99, 100, 102, 7}) h.insert(v);
+    h.print();
+    std::cout << "top = " << h.top() << "\n";
+    std::cout << "pop = " << h.pop() << "\n";
+    h.print();
+    h.deleteKey(99);
+    h.print();
+    return 0;
+}
+
+/*
+terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./heap_list
+MaxHeapList: [ 102 88 100 7 2 10 99 1 ]
+top = 102
+pop = 102
+MaxHeapList: [ 100 88 99 7 2 10 1 ]
+MaxHeapList: [ 100 88 10 7 2 1 ]
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+
+*/
+</file>
+
+<file path="heap_map.cpp">
+// heap_map.cpp — Max Heap avec std::map<int, T> (clé = index dans le tableau virtuel)
+// Justification : std::map fournit un accès par clé en O(log n).
+// On stocke le heap comme un tableau indexé 0..n-1 dans une map.
+// Résultat : insert/pop en O(log² n) (O(log n) par accès × O(log n) niveaux).
+// Moins rapide que vector mais conserve une complexité logarithmique.
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o heap_map heap_map.cpp
+
+#include <iostream>
+#include <map>
+#include <stdexcept>
+
+template <typename T>
+class MaxHeapMap {
+    std::map<int, T> tree;   // index -> valeur
+
+    T&       ref(int i)       { return tree.at(i); }
+    const T& ref(int i) const { return tree.at(i); }
+
+    void heapify(int i) {
+        int n = (int)tree.size();
+        int l = 2*i+1, r = 2*i+2, largest = i;
+        if (l < n && ref(l) > ref(largest)) largest = l;
+        if (r < n && ref(r) > ref(largest)) largest = r;
+        if (largest != i) {
+            std::swap(ref(i), ref(largest));
+            heapify(largest);
+        }
+    }
+
+public:
+    bool empty() const { return tree.empty(); }
+    int  size()  const { return (int)tree.size(); }
+
+    void insert(const T& v) {
+        int idx = (int)tree.size();
+        tree[idx] = v;
+        int i = idx;
+        while (i != 0) {
+            int p = (i-1)/2;
+            if (ref(p) >= ref(i)) break;
+            std::swap(ref(i), ref(p));
+            i = p;
+        }
+    }
+
+    const T& top() const {
+        if (tree.empty()) throw std::runtime_error("top() sur heap vide");
+        return tree.at(0);
+    }
+
+    T pop() {
+        if (tree.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = tree.at(0);
+        int last = (int)tree.size() - 1;
+        if (last == 0) { tree.clear(); return root; }
+        tree[0] = tree.at(last);
+        tree.erase(last);
+        heapify(0);
+        return root;
+    }
+
+    bool deleteKey(const T& key) {
+        int idx = -1;
+        for (const auto& kv : tree) {
+            if (kv.second == key) { idx = kv.first; break; }
+        }
+        if (idx == -1) return false;
+        int last = (int)tree.size() - 1;
+        if (idx == last) { tree.erase(last); return true; }
+
+        tree[idx] = tree.at(last);
+        tree.erase(last);
+        int i = idx;
+        while (i != 0) {
+            int p = (i-1)/2;
+            if (ref(p) >= ref(i)) break;
+            std::swap(ref(i), ref(p));
+            i = p;
+        }
+        heapify(i);
+        return true;
+    }
+
+    void print(std::ostream& os = std::cout) const {
+        os << "MaxHeapMap: [ ";
+        for (const auto& kv : tree) os << kv.second << ' ';
+        os << "]\n";
+    }
+};
+
+int main() {
+    MaxHeapMap<int> h;
+    for (int v : {88, 1, 10, 2, 99, 100, 102, 7}) h.insert(v);
+    h.print();
+    std::cout << "top = " << h.top() << "\n";
+    std::cout << "pop = " << h.pop() << "\n";
+    h.print();
+    h.deleteKey(99);
+    h.print();
+    return 0;
+}
+
+/*
+terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./heap_map
+MaxHeapMap: [ 102 88 100 7 2 10 99 1 ]
+top = 102
+pop = 102
+MaxHeapMap: [ 100 88 99 7 2 10 1 ]
+MaxHeapMap: [ 100 88 10 7 2 1 ]
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+
+
+*/
+</file>
+
+<file path="heap_raw.cpp">
+// heap_raw.cpp — Max Heap sans STL : tableau dynamique géré à la main (new/delete)
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o heap_raw heap_raw.cpp
+
+#include <iostream>
+#include <stdexcept>
+
+template <typename T>
+class MaxHeapRaw {
+    T*   buf;        // tableau dynamique brut
+    int  sz;         // taille actuelle
+    int  cap;        // capacité allouée
+
+    void grow() {
+        int newCap = (cap == 0) ? 8 : cap * 2;
+        T* newBuf = new T[newCap];
+        for (int i = 0; i < sz; ++i) newBuf[i] = buf[i];
+        delete[] buf;
+        buf = newBuf;
+        cap = newCap;
+    }
+
+    void heapify(int i) {
+        int l = 2*i+1, r = 2*i+2, largest = i;
+        if (l < sz && buf[l] > buf[largest]) largest = l;
+        if (r < sz && buf[r] > buf[largest]) largest = r;
+        if (largest != i) {
+            T tmp = buf[i]; buf[i] = buf[largest]; buf[largest] = tmp;
+            heapify(largest);
+        }
+    }
+
+public:
+    MaxHeapRaw() : buf(nullptr), sz(0), cap(0) {}
+
+    // Interdiction de la copie par simplicité (règle des 3/5 non traitée ici)
+    MaxHeapRaw(const MaxHeapRaw&) = delete;
+    MaxHeapRaw& operator=(const MaxHeapRaw&) = delete;
+
+    ~MaxHeapRaw() { delete[] buf; }
+
+    bool empty() const { return sz == 0; }
+    int  size()  const { return sz; }
+
+    void insert(const T& v) {
+        if (sz == cap) grow();
+        buf[sz++] = v;
+        int i = sz - 1;
+        while (i != 0 && buf[(i-1)/2] < buf[i]) {
+            T tmp = buf[i]; buf[i] = buf[(i-1)/2]; buf[(i-1)/2] = tmp;
+            i = (i-1)/2;
+        }
+    }
+
+    const T& top() const {
+        if (sz == 0) throw std::runtime_error("top() sur heap vide");
+        return buf[0];
+    }
+
+    T pop() {
+        if (sz == 0) throw std::runtime_error("pop() sur heap vide");
+        T root = buf[0];
+        buf[0] = buf[--sz];
+        if (sz > 0) heapify(0);
+        return root;
+    }
+
+    bool deleteKey(const T& key) {
+        int idx = -1;
+        for (int i = 0; i < sz; ++i) if (buf[i] == key) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == sz-1) { --sz; return true; }
+
+        buf[idx] = buf[--sz];
+        int i = idx;
+        while (i != 0 && buf[(i-1)/2] < buf[i]) {
+            T tmp = buf[i]; buf[i] = buf[(i-1)/2]; buf[(i-1)/2] = tmp;
+            i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+
+    void print(std::ostream& os = std::cout) const {
+        os << "MaxHeapRaw: [ ";
+        for (int i = 0; i < sz; ++i) os << buf[i] << ' ';
+        os << "]\n";
+    }
+};
+
+int main() {
+    MaxHeapRaw<int> h;
+    for (int v : {88, 1, 10, 2, 99, 100, 102, 7}) h.insert(v);
+    h.print();
+    std::cout << "top = " << h.top() << "\n";
+    std::cout << "pop = " << h.pop() << "\n";
+    h.print();
+    h.deleteKey(99);
+    h.print();
+    return 0;
+}
+
+/*
+Terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./heap_raw
+MaxHeapRaw: [ 102 88 100 7 2 10 99 1 ]
+top = 102
+pop = 102
+MaxHeapRaw: [ 100 88 99 7 2 10 1 ]
+MaxHeapRaw: [ 100 88 10 7 2 1 ]
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+
+
+*/
+</file>
+
+<file path="heap_vector.cpp">
+// heap_vector.cpp — Max Heap avec std::vector (implémentation de référence)
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o heap_vector heap_vector.cpp
+
+#include <iostream>
+#include <vector>
+#include <stdexcept>
+
+template <typename T>
+class MaxHeapVector {
+    std::vector<T> arr;
+
+    void heapify(int i) {
+        int n = (int)arr.size();
+        int l = 2*i + 1, r = 2*i + 2, largest = i;
+        if (l < n && arr[l] > arr[largest]) largest = l;
+        if (r < n && arr[r] > arr[largest]) largest = r;
+        if (largest != i) {
+            std::swap(arr[i], arr[largest]);
+            heapify(largest);
+        }
+    }
+
+public:
+    void reserve(std::size_t n) { arr.reserve(n); }
+    bool empty() const { return arr.empty(); }
+    int  size()  const { return (int)arr.size(); }
+
+    void insert(const T& v) {
+        arr.push_back(v);
+        int i = (int)arr.size() - 1;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]);
+            i = (i-1)/2;
+        }
+    }
+
+    const T& top() const {
+        if (arr.empty()) throw std::runtime_error("top() sur heap vide");
+        return arr[0];
+    }
+
+    T pop() {
+        if (arr.empty()) throw std::runtime_error("pop() sur heap vide");
+        T root = arr[0];
+        arr[0] = arr.back();
+        arr.pop_back();
+        if (!arr.empty()) heapify(0);
+        return root;
+    }
+
+    bool deleteKey(const T& key) {
+        int n = (int)arr.size(), idx = -1;
+        for (int i = 0; i < n; ++i) if (arr[i] == key) { idx = i; break; }
+        if (idx == -1) return false;
+        if (idx == n-1) { arr.pop_back(); return true; }
+        arr[idx] = arr.back(); arr.pop_back();
+        int i = idx;
+        while (i != 0 && arr[(i-1)/2] < arr[i]) {
+            std::swap(arr[i], arr[(i-1)/2]); i = (i-1)/2;
+        }
+        heapify(i);
+        return true;
+    }
+
+    void print(std::ostream& os = std::cout) const {
+        os << "MaxHeapVector: [ ";
+        for (const auto& v : arr) os << v << ' ';
+        os << "]\n";
+    }
+};
+
+int main() {
+    MaxHeapVector<int> h;
+    for (int v : {88, 1, 10, 2, 99, 100, 102, 7}) h.insert(v);
+    h.print();
+    std::cout << "top = " << h.top() << "\n";
+    std::cout << "pop = " << h.pop() << "\n";
+    h.print();
+    h.deleteKey(99);
+    h.print();
+    return 0;
+}
+/*
+Terminal resultat:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./heap_vector
+MaxHeapVector: [ 102 88 100 7 2 10 99 1 ]
+top = 102
+pop = 102
+MaxHeapVector: [ 100 88 99 7 2 10 1 ]
+MaxHeapVector: [ 100 88 10 7 2 1 ]
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$
+
+*/
+</file>
+
+<file path="maxTas.cpp">
+// maxheap_simple.cpp
+// Max Heap simple et lisible (version étudiant 2e année ingénierie)
+// Compilation : g++ -std=c++17 -O2 -Wall -Wextra -o maxheap_simple maxheap_simple.cpp
+
+#include <iostream>
+#include <vector>
+#include <stdexcept>
+
+template <typename T>
+class MaxHeap {
+private:
+    std::vector<T> arr;   // stockage interne
+
+    // Restaure la propriété du max heap à partir de l'indice i (descente)
+    void heapify(int i) {
+        int n = static_cast<int>(arr.size());
+        int largest = i;
+        int left  = 2 * i + 1;
+        int right = 2 * i + 2;
+
+        if (left < n && arr[left] > arr[largest])  largest = left;
+        if (right < n && arr[right] > arr[largest]) largest = right;
+
+        if (largest != i) {
+            std::swap(arr[i], arr[largest]);
+            heapify(largest);
+        }
+    }
+
+public:
+    MaxHeap() = default;
+
+    explicit MaxHeap(const std::vector<T>& input) {
+        arr = input;
+        // Construit le heap en O(n)
+        for (int i = static_cast<int>(arr.size()) / 2 - 1; i >= 0; --i) {
+            heapify(i);
+        }
+    }
+
+    bool empty() const { return arr.empty(); }
+    int  size()  const { return static_cast<int>(arr.size()); }
+
+    // Insertion : on ajoute à la fin puis on remonte
+    void insert(const T& value) {
+        arr.push_back(value);
+        int i = static_cast<int>(arr.size()) - 1;
+        while (i != 0 && arr[(i - 1) / 2] < arr[i]) {
+            std::swap(arr[i], arr[(i - 1) / 2]);
+            i = (i - 1) / 2;
+        }
+    }
+
+    // Retourne le maximum sans le retirer
+    const T& top() const {
+        if (arr.empty()) throw std::runtime_error("MaxHeap::top() : heap vide");
+        return arr[0];
+    }
+
+    // Retire et retourne le maximum
+    T pop() {
+        if (arr.empty()) throw std::runtime_error("MaxHeap::pop() : heap vide");
+        T root = arr[0];
+        arr[0] = arr.back();
+        arr.pop_back();
+        if (!arr.empty()) heapify(0);
+        return root;
+    }
+
+    // Supprime une clé arbitraire (première occurrence)
+    bool deleteKey(const T& key) {
+        int n = static_cast<int>(arr.size());
+        int index = -1;
+        for (int i = 0; i < n; ++i) {
+            if (arr[i] == key) { index = i; break; }
+        }
+        if (index == -1) return false;
+
+        if (index == n - 1) { arr.pop_back(); return true; }
+
+        arr[index] = arr.back();
+        arr.pop_back();
+
+        // Selon la valeur, il faut remonter ou descendre
+        int i = index;
+        // Remonter si nécessaire
+        while (i != 0 && arr[(i - 1) / 2] < arr[i]) {
+            std::swap(arr[i], arr[(i - 1) / 2]);
+            i = (i - 1) / 2;
+        }
+        // Sinon descendre
+        heapify(i);
+        return true;
+    }
+
+    void print(std::ostream& os = std::cout) const {
+        os << "Max Heap: [ ";
+        for (const auto& v : arr) os << v << ' ';
+        os << "]\n";
+    }
+
+    const std::vector<T>& data() const { return arr; }
+};
+
+// -------- Démonstration --------
+int main() {
+    MaxHeap<int> h;
+    std::cout << "Insertion successive de 88, 1, 10 :\n";
+    for (int v : {88, 1, 10}) { h.insert(v); h.print(); }
+
+    std::cout << "\nInsertion successive de 2, 99, 100, 102, 7 :\n";
+    for (int v : {2, 99, 100, 102, 7}) { h.insert(v); h.print(); }
+
+    std::cout << "\nTop = " << h.top() << "\n";
+    std::cout << "Pop = " << h.pop() << "\n";
+    h.print();
+
+    h.deleteKey(99);
+    std::cout << "Après deleteKey(99) :\n";
+    h.print();
+
+    return 0;
+}
+
+/*
+Resultat terminal:
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ ./maxTas
+Insertion successive de 88, 1, 10 :
+Max Heap: [ 88 ]
+Max Heap: [ 88 1 ]
+Max Heap: [ 88 1 10 ]
+
+Insertion successive de 2, 99, 100, 102, 7 :
+Max Heap: [ 88 2 10 1 ]
+Max Heap: [ 99 88 10 1 2 ]
+Max Heap: [ 100 88 99 1 2 10 ]
+Max Heap: [ 102 88 100 1 2 10 99 ]
+Max Heap: [ 102 88 100 7 2 10 99 1 ]
+
+Top = 102
+Pop = 102
+Max Heap: [ 100 88 99 7 2 10 1 ]
+Après deleteKey(99) :
+Max Heap: [ 100 88 10 7 2 1 ]
+alan@alan-HP-EliteBook-850-G8-Notebook-PC:~/Documents/ILISI2/Virtualisation/C++/TAS$ 
+
+
+*/
+</file>
+
+</files>
